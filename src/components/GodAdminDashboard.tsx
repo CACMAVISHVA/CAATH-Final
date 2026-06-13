@@ -3,310 +3,505 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { 
-  Users, 
-  ShieldAlert, 
-  ShieldCheck, 
-  TrendingUp, 
-  Search, 
-  Filter, 
-  MoreVertical, 
-  Ban, 
-  CheckCircle2, 
-  Clock, 
-  CreditCard, 
-  Globe, 
-  Zap, 
-  Activity,
-  Calendar
-} from 'lucide-react';
-import { motion } from 'motion/react';
-import { cn } from '../lib/utils';
-import { Firm } from '../types';
+import React, { useEffect, useState } from 'react';
+import { Activity } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { playSound } from '../services/soundService';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from './Toast';
+import { usePortalActivity } from '../hooks/usePortalActivity';
+import { FirmOperationsPanel, FirmRow } from './god-admin/FirmOperationsPanel';
+import { SubscriptionManagementPanel, SubscriptionRow } from './god-admin/SubscriptionManagementPanel';
+import { AuditLogsPanel, AuditRow } from './god-admin/AuditLogsPanel';
+import { SystemNoticePublisher } from './god-admin/SystemNoticePublisher';
+import { FirmConfirmationModal } from './god-admin/FirmConfirmationModal';
+import { DrilldownModals } from './god-admin/DrilldownModals';
+import { sanitizeAuditDetailsForPlatform } from '../services/dataSovereigntyService';
+import { ControlTowerModule } from './god-admin/ControlTowerModule';
+import { UsageMonitoringModule } from './god-admin/UsageMonitoringModule';
+import { PlatformConfigModule } from './god-admin/PlatformConfigModule';
+import { FirmProvisioningPanel } from './god-admin/FirmProvisioningPanel';
+import { RuntimeHealthSnapshot, runtimeKernel } from '../runtime/production';
+import {
+  loadControlTowerSnapshot,
+  loadUsageMonitoringSnapshot,
+  loadPlatformConfigSnapshot,
+  ControlTowerSnapshot,
+  UsageMonitoringSnapshot,
+  PlatformConfigSnapshot,
+} from '../services/godAdminPlatformSegmentationService';
+import { formatTenantDisplayId } from '../lib/tenantIdentity';
 
-const MOCK_FIRMS: Firm[] = [
-  { 
-    id: 'f1', 
-    name: 'Vishva & Associates', 
-    ownerUid: 'sa1', 
-    ownerEmail: 'ca.vishva@firm.com', 
-    status: 'Active', 
-    subscriptionType: 'Yearly', 
-    subscriptionStartDate: '2025-03-03', 
-    subscriptionExpiryDate: '2026-03-03', 
-    totalClients: 124, 
-    totalStaff: 12, 
-    revenueGenerated: 420000 
-  },
-  { 
-    id: 'f2', 
-    name: 'Sharma Tax Solutions', 
-    ownerUid: 'sa2', 
-    ownerEmail: 'rahul@sharmatax.com', 
-    status: 'Active', 
-    subscriptionType: 'Monthly', 
-    subscriptionStartDate: '2026-03-03', 
-    subscriptionExpiryDate: '2026-04-03', 
-    totalClients: 45, 
-    totalStaff: 4, 
-    revenueGenerated: 85000 
-  },
-  { 
-    id: 'f3', 
-    name: 'Gupta & Co', 
-    ownerUid: 'sa3', 
-    ownerEmail: 'priya@guptaco.com', 
-    status: 'Blocked', 
-    subscriptionType: 'Monthly', 
-    subscriptionStartDate: '2026-01-03', 
-    subscriptionExpiryDate: '2026-02-03', 
-    totalClients: 28, 
-    totalStaff: 2, 
-    revenueGenerated: 12000 
-  },
-];
+interface GodAdminDashboardProps {
+  activeTab: string;
+}
 
-export const GodAdminDashboard: React.FC = () => {
-  const [firms, setFirms] = useState<Firm[]>(MOCK_FIRMS);
-  const [searchTerm, setSearchTerm] = useState('');
+export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab }) => {
+  const { user } = useAuth();
+  const toast = useToast();
 
-  const toggleFirmStatus = (firmId: string) => {
-    setFirms(firms.map(f => {
-      if (f.id === firmId) {
-        return { ...f, status: f.status === 'Active' ? 'Blocked' : 'Active' };
-      }
-      return f;
-    }));
+  // Data state
+  const [firms, setFirms] = useState<FirmRow[]>([]);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+  const [controlTowerSnapshot, setControlTowerSnapshot] = useState<ControlTowerSnapshot>({
+    activeFirms: 0,
+    suspendedFirms: 0,
+    pendingSubscriptions: 0,
+    activeRevenue: 0,
+    criticalAlerts: 0,
+    orchestrationHealth: 'healthy',
+  });
+  const [usageSnapshot, setUsageSnapshot] = useState<UsageMonitoringSnapshot>({
+    workflowVolume30d: 0,
+    telemetryLoad30d: 0,
+    automationUsage30d: 0,
+    connectorEvents30d: 0,
+    activeUsersEstimate: 0,
+    storageUsageEstimateMb: 0,
+  });
+  const [configSnapshot, setConfigSnapshot] = useState<PlatformConfigSnapshot>({
+    activePlans: 0,
+    pendingEntitlements: 0,
+    governanceEvents7d: 0,
+    featureActivationRate: 0,
+  });
+  const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealthSnapshot>(runtimeKernel.health());
+
+  // Portal activity
+  const { loading: portalLoading, summary: portalSummary, recent: portalRecent } = usePortalActivity();
+
+  // UI state
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [noticeText, setNoticeText] = useState('');
+
+  // Modal state
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; firm: FirmRow | null; action: 'suspend' | 'reactivate'; reason: string }>({
+    isOpen: false,
+    firm: null,
+    action: 'suspend',
+    reason: '',
+  });
+
+  const [drilldownModal, setDrilldownModal] = useState<{
+    isOpen: boolean;
+    type: 'active' | 'suspended' | 'pending' | 'revenue';
+    title: string;
+  }>({
+    isOpen: false,
+    type: 'active',
+    title: '',
+  });
+
+  const [drilldownSearch, setDrilldownSearch] = useState('');
+
+  // Computed metrics
+  // Portal metrics
+  const portalTop = Object.entries(portalSummary?.byPortal || {}).sort((a: any, b: any) => b[1] - a[1])[0];
+
+  // Load platform data
+  const loadPlatformData = async () => {
+    setIsLoading(true);
+    setMessage(null);
+
+    const [firmResult, subscriptionResult, auditResult, controlTower, usage, config] = await Promise.all([
+      supabase.from('firms').select('id, status, created_at').order('created_at', { ascending: false }),
+      supabase.from('subscriptions').select('id, firm_id, plan, status, amount, starts_at, expires_at').order('created_at', { ascending: false }),
+      supabase.from('audit_logs').select('id, firm_id, user_name, user_role, action, entity_type, details, created_at').order('created_at', { ascending: false }).limit(20),
+      loadControlTowerSnapshot(),
+      loadUsageMonitoringSnapshot(),
+      loadPlatformConfigSnapshot(),
+    ]);
+
+    if (firmResult.error) setMessage(firmResult.error.message);
+    else setFirms((firmResult.data || []) as FirmRow[]);
+
+    if (!subscriptionResult.error) {
+      setSubscriptions((subscriptionResult.data || []) as unknown as SubscriptionRow[]);
+    }
+
+    if (!auditResult.error) {
+      const sanitizedAuditLogs = (auditResult.data || []).map((log) => ({
+        ...log,
+        details: sanitizeAuditDetailsForPlatform(typeof log.details === 'string' ? log.details : ''),
+      }));
+      setAuditLogs(sanitizedAuditLogs as AuditRow[]);
+    }
+    setControlTowerSnapshot(controlTower);
+    setUsageSnapshot(usage);
+    setConfigSnapshot(config);
+
+    setIsLoading(false);
   };
 
-  const updateSubscription = (firmId: string, type: 'Monthly' | 'Yearly') => {
-    setFirms(firms.map(f => {
-      if (f.id === firmId) {
-        const now = new Date();
-        const start = now.toISOString().split('T')[0];
-        const expiry = new Date(now);
-        if (type === 'Monthly') expiry.setMonth(expiry.getMonth() + 1);
-        else expiry.setFullYear(expiry.getFullYear() + 1);
-        
-        return { 
-          ...f, 
-          subscriptionType: type, 
-          subscriptionStartDate: start, 
-          subscriptionExpiryDate: expiry.toISOString().split('T')[0],
-          status: 'Active'
-        };
-      }
-      return f;
-    }));
+  useEffect(() => {
+    loadPlatformData();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setRuntimeHealth(runtimeKernel.health()), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // Audit logging
+  const writePlatformAudit = async (params: { firmId?: string; action: string; entityType: string; entityId?: string; details: string }) => {
+    if (!user) return;
+
+    await supabase.from('audit_logs').insert([{
+      firm_id: params.firmId ?? null,
+      user_id: user.id,
+      user_name: user.name,
+      user_role: user.role,
+      action: params.action,
+      entity_type: params.entityType,
+      entity_id: params.entityId,
+      details: params.details,
+    }]);
   };
 
-  const filteredFirms = firms.filter(f => 
-    f.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    f.ownerEmail.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Firm operations
+  const handleConfirmAction = async () => {
+    if (!user || !confirmModal.firm) return;
+    const { firm, action, reason } = confirmModal;
+    const nextStatus = action === 'suspend' ? 'Suspended' : 'Active';
+    setBusyAction(`firm-${firm.id}`);
 
-  const stats = [
-    { label: 'Total Firms', value: firms.length, icon: Globe, color: 'text-blue-400' },
-    { label: 'Active Subscriptions', value: firms.filter(f => f.status === 'Active').length, icon: CheckCircle2, color: 'text-gold' },
-    { label: 'Blocked Firms', value: firms.filter(f => f.status === 'Blocked').length, icon: Ban, color: 'text-red-500' },
-    { label: 'Total Revenue', value: '₹' + (firms.reduce((acc, f) => acc + f.revenueGenerated, 0) / 100000).toFixed(1) + 'L', icon: TrendingUp, color: 'text-emerald-500' },
-  ];
+    try {
+      const updateData: Record<string, unknown> = {
+        status: nextStatus,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (action === 'suspend') {
+        updateData.suspension_reason = reason || 'No reason provided';
+        updateData.suspended_at = new Date().toISOString();
+        updateData.suspended_by = user.id;
+        updateData.reactivated_at = null;
+        updateData.reactivated_by = null;
+      } else {
+        updateData.reactivated_at = new Date().toISOString();
+        updateData.reactivated_by = user.id;
+        updateData.suspension_reason = null;
+        updateData.suspended_at = null;
+        updateData.suspended_by = null;
+      }
+
+      const { error } = await supabase.from('firms').update(updateData).eq('id', firm.id);
+      if (error) throw error;
+
+      await writePlatformAudit({
+        firmId: firm.id,
+        action: nextStatus === 'Suspended' ? 'Firm Suspended' : 'Firm Reactivated',
+        entityType: 'Firm',
+        entityId: firm.id,
+        details: `Tenant ${formatTenantDisplayId(firm.id)} marked as ${nextStatus} by GodAdmin.`,
+      });
+
+      setFirms((current) => current.map((item) => item.id === firm.id ? { ...item, status: nextStatus } : item));
+      setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '' });
+      toast.success(
+        action === 'suspend' ? 'Firm Suspended' : 'Firm Reactivated',
+        `Tenant ${formatTenantDisplayId(firm.id)} has been ${nextStatus.toLowerCase()}.`
+      );
+    } catch (error) {
+      toast.error('Update Failed', error instanceof Error ? error.message : 'Firm status update failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  // Subscription operations
+  const approveSubscription = async (subscription: SubscriptionRow) => {
+    if (!user) return;
+    playSound('success');
+    setBusyAction(`subscription-${subscription.id}`);
+    setMessage(null);
+
+    try {
+      const now = new Date();
+      const expiry = new Date(now);
+      expiry.setFullYear(expiry.getFullYear() + 1);
+
+      const { error } = await supabase.from('subscriptions').update({
+        status: 'Active',
+        starts_at: now.toISOString(),
+        expires_at: expiry.toISOString(),
+        approved_by: user.id,
+        approved_at: now.toISOString(),
+        updated_by: user.id,
+        updated_at: now.toISOString(),
+      }).eq('id', subscription.id);
+
+      if (error) throw error;
+
+      await supabase.from('notifications').insert([{
+        firm_id: subscription.firm_id,
+        created_by: user.id,
+        title: 'Subscription approved',
+        message: `${subscription.plan} subscription has been approved by CAATH.`,
+        audience_role: 'SuperAdmin',
+        status: 'UNREAD',
+      }]);
+
+      await writePlatformAudit({
+        firmId: subscription.firm_id,
+        action: 'Subscription Approved',
+        entityType: 'Subscription',
+        entityId: subscription.id,
+        details: `${subscription.plan} subscription approved by GodAdmin.`,
+      });
+
+      setSubscriptions((current) => current.map((item) => (
+        item.id === subscription.id
+          ? { ...item, status: 'Active', starts_at: now.toISOString(), expires_at: expiry.toISOString() }
+          : item
+      )));
+      setMessage('Subscription approved and firm notified.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Subscription approval failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const markPaymentReceived = async (subscription: SubscriptionRow) => {
+    if (!user) return;
+    setBusyAction(`payment-${subscription.id}`);
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase.from('subscriptions').update({
+        status: 'Active',
+        last_payment_date: now,
+        last_payment_status: 'Success',
+        updated_by: user.id,
+        updated_at: now,
+      }).eq('id', subscription.id);
+
+      if (error) throw error;
+
+      await writePlatformAudit({
+        firmId: subscription.firm_id,
+        action: 'Payment Marked Received',
+        entityType: 'Subscription',
+        entityId: subscription.id,
+        details: `Manual payment receipt recorded for ${subscription.plan} subscription.`,
+      });
+
+      setSubscriptions((current) => current.map((item) => item.id === subscription.id ? { ...item, status: 'Active' } : item));
+      toast.success('Payment Recorded', 'Subscription payment marked as received manually.');
+    } catch (error) {
+      toast.error('Manual Update Failed', error instanceof Error ? error.message : 'Could not record payment.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const updateSubscriptionStatus = async (subscriptionId: string, newStatus: string, action: string, details: string) => {
+    if (!user) return;
+    const subscription = subscriptions.find(s => s.id === subscriptionId);
+    if (!subscription) return;
+
+    setBusyAction(`${action}-${subscriptionId}`);
+    setMessage(null);
+    try {
+      const { error } = await supabase.from('subscriptions').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', subscriptionId);
+      if (error) throw error;
+
+      await writePlatformAudit({
+        firmId: subscription.firm_id,
+        action,
+        entityType: 'Subscription',
+        entityId: subscriptionId,
+        details,
+      });
+
+      setMessage(`Subscription ${newStatus.toLowerCase()} successfully`);
+      loadPlatformData();
+    } catch (error) {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Operation failed'}`);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const publishSystemNotice = async () => {
+    if (!user || !noticeText.trim()) return;
+    setBusyAction('system-notice');
+    setMessage(null);
+
+    try {
+      const { error } = await supabase.from('notifications').insert([{
+        firm_id: null,
+        created_by: user.id,
+        title: 'CAATH platform notice',
+        message: noticeText.trim(),
+        audience_role: 'SuperAdmin',
+        status: 'UNREAD',
+      }]);
+
+      if (error) throw error;
+
+      await writePlatformAudit({
+        action: 'System Notice Published',
+        entityType: 'Notification',
+        details: noticeText.trim(),
+      });
+
+      setNoticeText('');
+      setMessage('System notice published to firm owners.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'System notice failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  // Export CSV
+  const handleExportCSV = () => {
+    const type = drilldownModal.type;
+    const data = type === 'revenue'
+      ? subscriptions.filter(s => s.status === 'Active').map(s => ({ TenantID: formatTenantDisplayId(s.firm_id), Plan: s.plan, Amount: s.amount, Status: s.status }))
+      : type === 'pending'
+      ? subscriptions.filter(s => s.status === 'Pending').map(s => ({ TenantID: formatTenantDisplayId(s.firm_id), Plan: s.plan, Amount: s.amount, Submitted: s.created_at }))
+      : firms.filter(f => f.status === (type === 'active' ? 'Active' : 'Suspended')).map(f => ({ TenantID: formatTenantDisplayId(f.id), Status: f.status, Created: f.created_at }));
+
+    const csv = data.length > 0 ? Object.keys(data[0]).join(',') + '\n' + data.map(row => Object.values(row).join(',')).join('\n') : '';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}-export.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Render main content based on active tab
+  const renderMainContent = () => {
+    if (activeTab === 'platform') {
+      return (
+        <ControlTowerModule
+          snapshot={controlTowerSnapshot}
+          portalLoading={portalLoading}
+          portalSummary={portalSummary}
+          portalRecent={portalRecent}
+          portalTop={portalTop}
+          onMetricClick={(type) => setDrilldownModal({ isOpen: true, type, title: type === 'active' ? 'Active Firms' : type === 'suspended' ? 'Suspended Firms' : type === 'pending' ? 'Pending Subscriptions' : 'Revenue Analytics' })}
+        />
+      );
+    }
+    if (activeTab === 'usage') {
+      return <UsageMonitoringModule snapshot={usageSnapshot} runtimeHealth={runtimeHealth} />;
+    }
+    if (activeTab === 'settings') {
+      return <PlatformConfigModule snapshot={configSnapshot} />;
+    }
+    if (activeTab === 'firms') {
+      return <FirmOperationsPanel firms={firms} busyAction={busyAction} onSuspendClick={(firm, action) => setConfirmModal({ isOpen: true, firm, action, reason: '' })} />;
+    }
+    if (activeTab === 'provisioning') {
+      return <FirmProvisioningPanel onProvisioned={loadPlatformData} />;
+    }
+    if (activeTab === 'subscriptions') {
+      return (
+        <SubscriptionManagementPanel
+          subscriptions={subscriptions}
+          busyAction={busyAction}
+          onApprove={approveSubscription}
+          onMarkPaid={markPaymentReceived}
+          onPause={(sub) => updateSubscriptionStatus(sub.id, 'Paused', 'Subscription Paused', `${sub.plan} subscription paused manually by GodAdmin.`)}
+          onResume={(sub) => updateSubscriptionStatus(sub.id, 'Active', 'Subscription Resumed', `${sub.plan} subscription resumed manually by GodAdmin.`)}
+          onReactivate={(sub) => updateSubscriptionStatus(sub.id, 'Active', 'Subscription Reactivated', `${sub.plan} subscription reactivated manually by GodAdmin.`)}
+          onSuspend={(sub) => {
+            const firm = firms.find(f => f.id === sub.firm_id);
+            if (firm) setConfirmModal({ isOpen: true, firm, action: 'suspend', reason: '' });
+          }}
+        />
+      );
+    }
+    if (activeTab === 'platform-audit') return <AuditLogsPanel auditLogs={auditLogs} />;
+    if (activeTab === 'system-notices') {
+      return <SystemNoticePublisher noticeText={noticeText} onNoticeTextChange={setNoticeText} onPublish={publishSystemNotice} isLoading={busyAction === 'system-notice'} />;
+    }
+
+    return (
+      <ControlTowerModule
+        snapshot={controlTowerSnapshot}
+        portalLoading={portalLoading}
+        portalSummary={portalSummary}
+        portalRecent={portalRecent}
+        portalTop={portalTop}
+        onMetricClick={(type) => setDrilldownModal({ isOpen: true, type, title: type === 'active' ? 'Active Firms' : type === 'suspended' ? 'Suspended Firms' : type === 'pending' ? 'Pending Subscriptions' : 'Revenue Analytics' })}
+      />
+    );
+  };
 
   return (
     <div className="p-8 space-y-8 h-full bg-matte-black text-slate-300 overflow-y-auto">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-6">
         <div>
-          <h2 className="text-3xl font-bold gold-text-gradient">God Admin Console</h2>
-          <p className="text-slate-500">Global SaaS Management & Subscription Control</p>
-        </div>
-        <div className="flex gap-4">
-          <div className="px-4 py-2 bg-gold/10 text-gold border border-gold/20 rounded-xl text-xs font-bold flex items-center gap-2">
-            <Zap className="w-4 h-4" />
-            System Status: Optimal
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, idx) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
-                <stat.icon className={`w-6 h-6 ${stat.color}`} />
-              </div>
-              <Activity className="w-4 h-4 text-slate-700" />
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center text-gold">
+              <Activity className="w-5 h-5" />
             </div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{stat.label}</p>
-            <h3 className="text-2xl font-bold text-white mt-1">{stat.value}</h3>
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="space-y-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search firms or owners..." 
-              className="w-full pl-10 pr-4 py-2.5 bg-matte-black-light border border-slate-800 rounded-xl text-sm text-white focus:ring-2 focus:ring-gold focus:border-transparent transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <button className="flex items-center gap-2 px-4 py-2 bg-matte-black-light border border-slate-800 rounded-xl text-sm font-bold text-slate-400 hover:text-gold transition-colors">
-            <Filter className="w-4 h-4" />
-            Filter
-          </button>
-        </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-matte-black-light rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-matte-black border-b border-slate-800">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Firm Details</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Plan</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Expiry</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Usage</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {filteredFirms.map((firm) => (
-                <tr key={firm.id} className="hover:bg-matte-black transition-colors group">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-gold/10 text-gold flex items-center justify-center font-bold text-sm border border-gold/20">
-                        {firm.name.charAt(0)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-white">{firm.name}</p>
-                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{firm.ownerEmail}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="w-3.5 h-3.5 text-gold" />
-                      <span className="text-xs font-bold text-slate-300">{firm.subscriptionType}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-3.5 h-3.5 text-blue-400" />
-                      <span className="text-xs font-mono text-slate-400">{firm.subscriptionExpiryDate}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-col gap-1">
-                      <p className="text-[10px] text-slate-500 font-bold uppercase">Clients: {firm.totalClients}</p>
-                      <p className="text-[10px] text-slate-500 font-bold uppercase">Staff: {firm.totalStaff}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      "px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border",
-                      firm.status === 'Active' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'
-                    )}>
-                      {firm.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button 
-                        onClick={() => updateSubscription(firm.id, 'Monthly')}
-                        className="px-3 py-1 bg-slate-800 text-slate-400 rounded-lg text-[10px] font-bold hover:bg-gold hover:text-matte-black transition-all"
-                      >
-                        +Month
-                      </button>
-                      <button 
-                        onClick={() => updateSubscription(firm.id, 'Yearly')}
-                        className="px-3 py-1 bg-slate-800 text-slate-400 rounded-lg text-[10px] font-bold hover:bg-gold hover:text-matte-black transition-all"
-                      >
-                        +Year
-                      </button>
-                      <button 
-                        onClick={() => toggleFirmStatus(firm.id)}
-                        className={cn(
-                          "p-2 rounded-lg transition-all",
-                          firm.status === 'Active' ? 'text-red-500 hover:bg-red-500/10' : 'text-emerald-500 hover:bg-emerald-500/10'
-                        )}
-                      >
-                        {firm.status === 'Active' ? <Ban className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                      </button>
-                      <button className="p-2 text-slate-600 hover:text-white">
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="space-y-6">
-          <div className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl">
-            <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-gold" />
-              System Health
-            </h3>
-            <div className="space-y-6">
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                  <span className="text-slate-500">Server Load</span>
-                  <span className="text-emerald-500">24%</span>
-                </div>
-                <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
-                  <div className="h-full bg-emerald-500 w-[24%]" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                  <span className="text-slate-500">Database Latency</span>
-                  <span className="text-emerald-500">12ms</span>
-                </div>
-                <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
-                  <div className="h-full bg-emerald-500 w-[15%]" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                  <span className="text-slate-500">AI Engine Load</span>
-                  <span className="text-amber-500">68%</span>
-                </div>
-                <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
-                  <div className="h-full bg-amber-500 w-[68%]" />
-                </div>
-              </div>
+            <div>
+              <h2 className="text-3xl font-bold gold-text-gradient">CAATH Platform Control Tower</h2>
+              <p className="text-sm text-slate-500">Multi-firm SaaS operations, subscriptions, usage, and platform governance.</p>
             </div>
           </div>
-
-          <div className="p-6 bg-gold/5 rounded-2xl border border-gold/20 shadow-xl">
-            <h3 className="text-sm font-bold text-gold mb-4 flex items-center gap-2">
-              <Zap className="w-4 h-4" />
-              Global Announcements
-            </h3>
-            <textarea 
-              placeholder="Broadcast a message to all firms..."
-              className="w-full h-24 bg-matte-black border border-slate-800 rounded-xl p-3 text-xs text-white focus:ring-1 focus:ring-gold outline-none resize-none"
-            />
-            <button className="w-full mt-3 py-2 bg-gold text-matte-black rounded-lg text-xs font-bold hover:bg-gold-light transition-all">
-              Broadcast Message
-            </button>
-          </div>
         </div>
+        <button
+          onClick={loadPlatformData}
+          disabled={isLoading}
+          className="px-4 py-2 bg-matte-black-light border border-slate-800 rounded-xl text-sm font-bold text-slate-400 hover:text-gold disabled:opacity-50"
+        >
+          Refresh
+        </button>
       </div>
-      </div>
+
+      {message && (
+        <div className="p-4 bg-gold/10 border border-gold/20 rounded-xl text-sm text-gold">
+          {message}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="p-12 bg-matte-black-light border border-slate-800 rounded-2xl text-center text-slate-500">
+          Loading platform operations...
+        </div>
+      ) : (
+        renderMainContent()
+      )}
+
+      <FirmConfirmationModal
+        isOpen={confirmModal.isOpen}
+        firm={confirmModal.firm}
+        action={confirmModal.action}
+        reason={confirmModal.reason}
+        onReasonChange={(reason) => setConfirmModal({ ...confirmModal, reason })}
+        onConfirm={handleConfirmAction}
+        onCancel={() => setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '' })}
+        isLoading={busyAction !== null}
+      />
+
+      <DrilldownModals
+        isOpen={drilldownModal.isOpen}
+        drilldownType={drilldownModal.type}
+        title={drilldownModal.title}
+        searchQuery={drilldownSearch}
+        onSearchChange={setDrilldownSearch}
+        onClose={() => setDrilldownModal({ isOpen: false, type: 'active', title: '' })}
+        onExportCSV={handleExportCSV}
+        onReactivate={(firm) => {
+          setConfirmModal({ isOpen: true, firm, action: 'reactivate', reason: '' });
+          setDrilldownModal({ isOpen: false, type: 'active', title: '' });
+        }}
+        onApprove={approveSubscription}
+        firms={firms}
+        subscriptions={subscriptions}
+      />
     </div>
   );
 };

@@ -1,30 +1,168 @@
 @import "tailwindcss";
 
 @theme {
-  --color-matte-black: #121212;
-  --color-matte-black-light: #1e1e1e;
-  --color-gold: #d4af37;
-  --color-gold-light: #f9e29f;
-  --color-gold-dark: #996515;
+  --color-matte-black: #15171c;
+  --color-matte-black-light: #1d2128;
+  --color-gold: #c8a85a;
+  --color-gold-light: #e3cb86;
+  --color-gold-dark: #8a7240;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Sharp mode - Remove all rounded corners */
+[data-ui-style="sharp"] .rounded-xl,
+[data-ui-style="sharp"].rounded-xl,
+[data-ui-style="sharp"] .rounded-2xl,
+[data-ui-style="sharp"].rounded-2xl,
+[data-ui-style="sharp"] .rounded-3xl,
+[data-ui-style="sharp"].rounded-3xl,
+[data-ui-style="sharp"] .rounded-full,
+[data-ui-style="sharp"].rounded-full,
+[data-ui-style="sharp"] .rounded-lg,
+[data-ui-style="sharp"].rounded-lg,
+[data-ui-style="sharp"] .rounded-md,
+[data-ui-style="sharp"].rounded-md {
+  border-radius: 0 !important;
+}
+
+/* Sharp mode specific element overrides */
+[data-ui-style="sharp"] button,
+[data-ui-style="sharp"] input,
+[data-ui-style="sharp"] select,
+[data-ui-style="sharp"] textarea {
+  border-radius: 0 !important;
+}
+
+[data-ui-style="sharp"] .rounded-full {
+  border-radius: 0 !important;
+}
+
+/* Avatar exceptions in sharp mode - allow circular avatars */
+[data-ui-style="sharp"] .rounded-full.w-8,
+[data-ui-style="sharp"] .rounded-full.w-10,
+[data-ui-style="sharp"] .rounded-full.w-12,
+[data-ui-style="sharp"] .rounded-full.w-16,
+[data-ui-style="sharp"] .rounded-full.h-8,
+[data-ui-style="sharp"] .rounded-full.h-10,
+[data-ui-style="sharp"] .rounded-full.h-12,
+[data-ui-style="sharp"] .rounded-full.h-16 {
+  border-radius: 9999px !important;
+}
+
+/* Spinner exceptions in sharp mode */
+[data-ui-style="sharp"] .animate-spin.rounded-full {
+  border-radius: 9999px !important;
+}
+
 @layer base {
+  html {
+    background: #15171c;
+  }
+
   body {
-    @apply bg-matte-black text-slate-300;
+    @apply bg-matte-black text-slate-300 antialiased;
+    background:
+      radial-gradient(circle at top left, rgba(200, 168, 90, 0.055), transparent 34rem),
+      linear-gradient(180deg, #171a20 0%, #121419 100%);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Custom Scrollbar - Premium Gold Theme (Thin) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-sm;
+    background: rgba(148, 163, 184, 0.34);
+    border: 1px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(200, 168, 90, 0.58);
+    border: 1px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-corner {
+    @apply bg-matte-black;
+  }
+
+  /* Firefox scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.45) rgba(255, 255, 255, 0.025);
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    @apply rounded-sm;
+    background: rgba(148, 163, 184, 0.34);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(200, 168, 90, 0.58);
   }
 }
 
 .gold-gradient {
-  background: linear-gradient(135deg, #d4af37 0%, #f9e29f 50%, #996515 100%);
+  background: linear-gradient(135deg, #c8a85a 0%, #e3cb86 52%, #8a7240 100%);
 }
 
 .gold-text-gradient {
-  background: linear-gradient(135deg, #d4af37 0%, #f9e29f 50%, #996515 100%);
+  background: linear-gradient(135deg, #e0c67f 0%, #c8a85a 54%, #f0dfaa 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .gold-border-gradient {
-  border-image: linear-gradient(135deg, #d4af37 0%, #f9e29f 50%, #996515 100%) 1;
+  border-image: linear-gradient(135deg, #c8a85a 0%, #e3cb86 50%, #8a7240 100%) 1;
+}
+
+@layer utilities {
+  .premium-surface {
+    background: rgba(29, 33, 40, 0.72);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.045);
+  }
+
+  .premium-subtle-surface {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .border-slate-800 {
+    border-color: rgba(100, 116, 139, 0.16) !important;
+  }
+
+  .border-slate-700 {
+    border-color: rgba(148, 163, 184, 0.22) !important;
+  }
+
+  .shadow-xl,
+  .shadow-2xl {
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2) !important;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    transition-duration: 180ms;
+    transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
 }

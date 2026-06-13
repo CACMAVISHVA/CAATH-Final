@@ -24,7 +24,7 @@ import { User, Client } from '../types';
 
 const MOCK_STAFF: User[] = [
   { 
-    uid: 's1', 
+    id: 's1', 
     name: 'CA Rahul Sharma', 
     email: 'rahul@firm.com', 
     role: 'Staff', 
@@ -33,7 +33,7 @@ const MOCK_STAFF: User[] = [
     performance: { tasksCompleted: 45, documentsDelivered: 120, avgTurnaroundDays: 2.5, clientSatisfaction: 4.8 }
   },
   { 
-    uid: 's2', 
+    id: 's2', 
     name: 'CA Priya Gupta', 
     email: 'priya@firm.com', 
     role: 'Staff', 
@@ -42,7 +42,7 @@ const MOCK_STAFF: User[] = [
     performance: { tasksCompleted: 38, documentsDelivered: 95, avgTurnaroundDays: 3.1, clientSatisfaction: 4.5 }
   },
   { 
-    uid: 's3', 
+    id: 's3', 
     name: 'CA Amit Verma', 
     email: 'amit@firm.com', 
     role: 'Staff', 
@@ -61,24 +61,83 @@ const MOCK_CLIENTS: Partial<Client>[] = [
   { id: 'c6', name: 'Adani Enterprises' },
 ];
 
+interface NewStaffForm {
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  department: string;
+  designation: string;
+  joiningDate: string;
+}
+
 export const StaffManagement: React.FC = () => {
   const [staff, setStaff] = useState<User[]>(MOCK_STAFF);
   const [selectedStaff, setSelectedStaff] = useState<User | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newStaff, setNewStaff] = useState<NewStaffForm>({
+    name: '',
+    email: '',
+    phone: '',
+    role: 'Staff',
+    department: '',
+    designation: '',
+    joiningDate: new Date().toISOString().split('T')[0],
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const removeStaff = (uid: string) => {
-    setStaff(staff.filter(s => s.uid !== uid));
-    if (selectedStaff?.uid === uid) setSelectedStaff(null);
+  const removeStaff = (id: string) => {
+    setStaff(staff.filter(s => s.id !== id));
+    if (selectedStaff?.id === id) setSelectedStaff(null);
+  };
+
+  const handleAddStaff = async () => {
+    if (!newStaff.name || !newStaff.email) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    // Simulate API call - in production, this would call Supabase
+    setTimeout(() => {
+      const newStaffMember: User = {
+        id: `s${Date.now()}`,
+        name: newStaff.name,
+        email: newStaff.email,
+        role: newStaff.role as User['role'],
+        firmId: 'f1',
+        status: 'Active',
+        assignedClients: [],
+        performance: { tasksCompleted: 0, documentsDelivered: 0, avgTurnaroundDays: 0, clientSatisfaction: 0 }
+      };
+
+      setStaff([...staff, newStaffMember]);
+      setShowAddModal(false);
+      setNewStaff({
+        name: '',
+        email: '',
+        phone: '',
+        role: 'Staff',
+        department: '',
+        designation: '',
+        joiningDate: new Date().toISOString().split('T')[0],
+      });
+      setIsSubmitting(false);
+    }, 500);
   };
 
   return (
-    <div className="p-8 space-y-8 h-full bg-matte-black text-slate-300 overflow-y-auto">
+    <div className="p-6 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold gold-text-gradient">Staff Management</h2>
-          <p className="text-slate-500">Manage your team, delegate clients, and track performance.</p>
+          <h2 className="text-2xl font-bold gold-text-gradient">Staff Management</h2>
+          <p className="text-sm text-slate-500">Manage your team, delegate clients, and track performance.</p>
         </div>
-        <button className="flex items-center gap-2 px-6 py-2.5 bg-gold text-matte-black rounded-xl font-bold hover:bg-gold-light transition-all shadow-lg shadow-gold/20">
-          <UserPlus className="w-5 h-5" />
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-gold text-matte-black font-bold hover:bg-gold-light transition-all"
+        >
+          <UserPlus className="w-4 h-4" />
           Add New Staff
         </button>
       </div>
@@ -104,12 +163,12 @@ export const StaffManagement: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {staff.map((member) => (
               <motion.div 
-                key={member.uid}
-                layoutId={member.uid}
+                key={member.id}
+                layoutId={member.id}
                 onClick={() => setSelectedStaff(member)}
                 className={cn(
                   "p-6 bg-matte-black-light rounded-2xl border transition-all cursor-pointer group",
-                  selectedStaff?.uid === member.uid ? "border-gold shadow-[0_0_20px_rgba(212,175,55,0.1)]" : "border-slate-800 hover:border-gold/30"
+                  selectedStaff?.id === member.id ? "border-gold shadow-[0_0_20px_rgba(212,175,55,0.1)]" : "border-slate-800 hover:border-gold/30"
                 )}
               >
                 <div className="flex items-start justify-between mb-4">
@@ -123,7 +182,7 @@ export const StaffManagement: React.FC = () => {
                     </div>
                   </div>
                   <button 
-                    onClick={(e) => { e.stopPropagation(); removeStaff(member.uid); }}
+                    onClick={(e) => { e.stopPropagation(); removeStaff(member.id); }}
                     className="p-2 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -229,6 +288,117 @@ export const StaffManagement: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Add Staff Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShowAddModal(false)}>
+          <div className="bg-matte-black-light border border-slate-800 w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-800">
+              <h3 className="text-lg font-bold text-white">Add New Staff Member</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-500 hover:text-white">✕</button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 uppercase font-bold mb-1.5">Full Name *</label>
+                  <input
+                    type="text"
+                    value={newStaff.name}
+                    onChange={e => setNewStaff({ ...newStaff, name: e.target.value })}
+                    className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
+                    placeholder="CA Name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 uppercase font-bold mb-1.5">Email *</label>
+                  <input
+                    type="email"
+                    value={newStaff.email}
+                    onChange={e => setNewStaff({ ...newStaff, email: e.target.value })}
+                    className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
+                    placeholder="email@firm.com"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 uppercase font-bold mb-1.5">Phone</label>
+                  <input
+                    type="tel"
+                    value={newStaff.phone}
+                    onChange={e => setNewStaff({ ...newStaff, phone: e.target.value })}
+                    className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
+                    placeholder="+91 9876543210"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 uppercase font-bold mb-1.5">Role</label>
+                  <select
+                    value={newStaff.role}
+                    onChange={e => setNewStaff({ ...newStaff, role: e.target.value })}
+                    className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
+                  >
+                    <option value="Staff">Staff</option>
+                    <option value="Admin">Admin</option>
+                    <option value="SuperAdmin">SuperAdmin</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs text-slate-500 uppercase font-bold mb-1.5">Department</label>
+                  <input
+                    type="text"
+                    value={newStaff.department}
+                    onChange={e => setNewStaff({ ...newStaff, department: e.target.value })}
+                    className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
+                    placeholder="Tax / Audit / GST"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 uppercase font-bold mb-1.5">Designation</label>
+                  <input
+                    type="text"
+                    value={newStaff.designation}
+                    onChange={e => setNewStaff({ ...newStaff, designation: e.target.value })}
+                    className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
+                    placeholder="Senior / Junior"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 uppercase font-bold mb-1.5">Joining Date</label>
+                <input
+                  type="date"
+                  value={newStaff.joiningDate}
+                  onChange={e => setNewStaff({ ...newStaff, joiningDate: e.target.value })}
+                  className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 p-4 border-t border-slate-800">
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddStaff}
+                disabled={isSubmitting || !newStaff.name || !newStaff.email}
+                className="px-4 py-2 bg-gold text-matte-black text-sm font-bold hover:bg-gold-light disabled:opacity-50"
+              >
+                {isSubmitting ? 'Adding...' : 'Add Staff Member'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

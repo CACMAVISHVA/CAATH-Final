@@ -10,16 +10,25 @@ export type TaskStatus = 'Todo' | 'In Progress' | 'Review' | 'Completed';
 export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
 export type NoticeStatus = 'Received' | 'Assigned' | 'Drafted' | 'Filed' | 'Closed';
 export type BillingStatus = 'Paid' | 'Unpaid' | 'Overdue';
+export type DocumentStatus = 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REWORK' | 'CLIENT_VISIBLE';
+export type DocumentWorkflowStage = 'DRAFT' | 'STAFF_PROCESSED' | 'ADMIN_REVIEW' | 'SUPERADMIN_APPROVAL' | 'CLIENT_VISIBLE' | 'ARCHIVED' | 'REJECTED' | 'REWORK';
 
 export type UserRole = 'GodAdmin' | 'SuperAdmin' | 'Admin' | 'Staff' | 'Client';
 
+export type ApprovalStatus = 'DRAFT' | 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REWORK' | 'CLIENT_VISIBLE' | 'ARCHIVED';
+export type ApprovalWorkflowStage = 'DRAFT' | 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REWORK' | 'CLIENT_VISIBLE' | 'ARCHIVED';
+
 export interface User {
-  uid: string;
+  id: string;
+  authId?: string;
   email: string;
   name: string;
   role: UserRole;
-  firmId?: string; // GodAdmin might not have a firmId
+  status?: string;
+  firmId?: string;
+  createdAt?: string;
   assignedClients?: string[];
+  services?: ('GST' | 'Income Tax' | 'MCA')[];
   performance?: {
     tasksCompleted: number;
     documentsDelivered: number;
@@ -31,7 +40,7 @@ export interface User {
 export interface Firm {
   id: string;
   name: string;
-  ownerUid: string;
+  ownerUserId: string;
   ownerEmail: string;
   status: 'Active' | 'Blocked';
   subscriptionType: 'Monthly' | 'Yearly';
@@ -136,8 +145,60 @@ export interface ExtractedData {
   category: string;
 }
 
+// GST / Reconciliation types
+export type GstInvoiceSource = 'GSTR1' | 'GSTR3B' | 'PURCHASE' | 'B2B' | 'B2BA';
+
+export interface GstInvoice {
+  id: string;
+  firmId: string;
+  clientId: string;
+  invoiceNo: string;
+  invoiceDate: string;
+  supplierGstin?: string;
+  recipientGstin?: string;
+  taxableValue: number;
+  taxAmount: number;
+  totalAmount: number;
+  type: 'OUTWARD' | 'INWARD';
+  source: GstInvoiceSource;
+  originalPayload?: any;
+  importedAt?: string;
+}
+
+export interface GstReconciliationSummary {
+  clientId: string;
+  period: string; // e.g., '2026-04'
+  totalOutward: number;
+  totalOutwardTax: number;
+  totalInward: number;
+  totalInwardTax: number;
+  mismatchCount: number;
+  pendingIssues: number;
+  reconciliationHealthScore?: number;
+  filingConsistencyScore?: number;
+  outwardLiabilityVariance?: number;
+  noticeRiskCategory?: 'Low' | 'Medium' | 'High';
+  mismatchSeverity?: {
+    high: number;
+    medium: number;
+    low: number;
+  };
+}
+
+export interface GstMismatch {
+  id: string;
+  reconciliationId: string;
+  invoiceId?: string;
+  invoiceNo?: string;
+  gstin?: string;
+  mismatchType: 'AMOUNT_MISMATCH' | 'MISSING_IN_GSTR3B' | 'MISSING_IN_GSTR1' | 'TAX_VARIANCE' | 'OTHER';
+  details: any;
+  createdAt: string;
+}
+
 export interface Document {
   id: string;
+  firmId?: string;
   clientId: string;
   name: string;
   url: string;
@@ -145,6 +206,14 @@ export interface Document {
   version: number;
   uploadedBy: string;
   timestamp: string;
+  status?: DocumentStatus;
+  workflowStage?: DocumentWorkflowStage;
+  visibleToClient?: boolean;
+  adminReviewedBy?: string;
+  adminReviewedAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
   extractedData?: ExtractedData;
 }
 
@@ -160,13 +229,69 @@ export interface Billing {
 
 export interface AuditLog {
   id: string;
-  firmId: string;
+  firmId?: string;
   userId: string;
   userName: string;
   userRole: UserRole;
   action: string;
-  category: 'Login' | 'Client' | 'Task' | 'Document' | 'System';
+  category: 'Login' | 'Client' | 'Task' | 'Document' | 'System' | 'Approval' | 'Billing' | 'Notice' | 'Compliance';
   details: string;
   timestamp: string;
   ipAddress?: string;
+}
+
+export interface Approval {
+  id: string;
+  firmId: string;
+  module: string;
+  recordId: string;
+  status: ApprovalStatus;
+  workflowStage: ApprovalWorkflowStage;
+  assignedTo?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
+  reworkOwner?: string;
+  createdBy?: string;
+  updatedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkforceProfile {
+  id: string;
+  firmId: string;
+  userId: string;
+  employeeCode: string;
+  department: string;
+  team: string;
+  designation: string;
+  joiningDate: string;
+  reportingManagerId?: string;
+  compensationStatus: 'Draft' | 'Active' | 'Paused';
+}
+
+export interface SalaryStructure {
+  id: string;
+  firmId: string;
+  employeeUserId: string;
+  baseSalary: number;
+  incentives: number;
+  bonus: number;
+  deductions: number;
+  reimbursements: number;
+  effectiveFrom: string;
+  status: 'Active' | 'Inactive';
+}
+
+export interface PayrollRecord {
+  id: string;
+  firmId: string;
+  payrollPeriod: string;
+  employeeUserId: string;
+  grossAmount: number;
+  netAmount: number;
+  payoutStatus: 'Draft' | 'Pending Approval' | 'Approved' | 'Paid' | 'Rejected';
+  approvedBy?: string;
+  approvedAt?: string;
 }

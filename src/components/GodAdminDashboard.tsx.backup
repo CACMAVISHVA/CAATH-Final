@@ -1,0 +1,977 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useEffect, useMemo, useState, Suspense } from 'react';
+import {
+  Activity,
+  AlertCircle,
+  Building2,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  Database,
+  FileCheck2,
+  ShieldAlert,
+  TrendingUp,
+  Users,
+  Zap,
+  X,
+  Pause,
+  Play,
+  Search,
+  Filter,
+  Download,
+  PauseCircle,
+  RefreshCw,
+} from 'lucide-react';
+import { motion } from 'motion/react';
+import { supabase } from '../lib/supabase';
+import { playSound } from '../services/soundService';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from './Toast';
+import { cn } from '../lib/utils';
+import { usePortalActivity } from '../hooks/usePortalActivity';
+import { PortalActivityPanel } from './god-admin/PortalActivityPanel';
+const GSTReconciliationSummary = React.lazy(() => import('./GSTReconciliationSummary'));
+
+type FirmRow = {
+  id: string;
+  name: string;
+  status: string;
+  created_at: string;
+  updated_at?: string | null;
+};
+
+type SubscriptionRow = {
+  id: string;
+  firm_id: string;
+  plan: string;
+  status: string;
+  amount: number;
+  starts_at: string | null;
+  expires_at: string | null;
+  created_at?: string | null;
+  firm?: { name: string } | null;
+};
+
+type AuditRow = {
+  id: string;
+  firm_id: string | null;
+  user_name: string;
+  user_role: string;
+  action: string;
+  entity_type: string;
+  details: string;
+  created_at: string;
+};
+
+interface GodAdminDashboardProps {
+  activeTab: string;
+}
+
+export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab }) => {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [firms, setFirms] = useState<FirmRow[]>([]);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { loading: portalLoading, summary: portalSummary, recent: portalRecent } = usePortalActivity();
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [noticeText, setNoticeText] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; firm: FirmRow | null; action: 'suspend' | 'reactivate'; reason: string }>({
+    isOpen: false,
+    firm: null,
+    action: 'suspend',
+    reason: '',
+  });
+
+  // Drilldown modal state
+  const [drilldownModal, setDrilldownModal] = useState<{
+    isOpen: boolean;
+    type: 'active' | 'suspended' | 'pending' | 'revenue';
+    title: string;
+  }>({
+    isOpen: false,
+    type: 'active',
+    title: '',
+  });
+
+  const [drilldownSearch, setDrilldownSearch] = useState('');
+
+  const activeFirms = useMemo(() => firms.filter((firm) => firm.status === 'Active').length, [firms]);
+  const suspendedFirms = useMemo(() => firms.filter((firm) => firm.status === 'Suspended').length, [firms]);
+  const pendingSubscriptions = useMemo(() => subscriptions.filter((sub) => sub.status === 'Pending').length, [subscriptions]);
+  const platformRevenue = useMemo(() => subscriptions.filter((sub) => sub.status === 'Active').reduce((total, sub) => total + Number(sub.amount || 0), 0), [subscriptions]);
+
+  const loadPlatformData = async () => {
+    setIsLoading(true);
+    setMessage(null);
+
+    const [firmResult, subscriptionResult, auditResult] = await Promise.all([
+      supabase.from('firms').select('id, name, status, created_at').order('created_at', { ascending: false }),
+      supabase.from('subscriptions').select('id, firm_id, plan, status, amount, starts_at, expires_at, firm:firms(name)').order('created_at', { ascending: false }),
+      supabase.from('audit_logs').select('id, firm_id, user_name, user_role, action, entity_type, details, created_at').order('created_at', { ascending: false }).limit(20),
+    ]);
+
+    if (firmResult.error) setMessage(firmResult.error.message);
+    else setFirms((firmResult.data || []) as FirmRow[]);
+
+    if (!subscriptionResult.error) {
+      setSubscriptions((subscriptionResult.data || []) as unknown as SubscriptionRow[]);
+    }
+
+    if (!auditResult.error) {
+      setAuditLogs((auditResult.data || []) as AuditRow[]);
+    }
+
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    loadPlatformData();
+  }, []);
+
+  // Derived portal metrics
+  const portalTotal = portalSummary?.total ?? 0;
+  const portalFailed = portalSummary?.failed ?? 0;
+  const portalTop = Object.entries(portalSummary?.byPortal || {}).sort((a: any, b: any) => b[1] - a[1])[0];
+  const canViewPortalActivity = Boolean(user && ['GodAdmin', 'SuperAdmin', 'Admin', 'Staff'].includes(user.role));
+
+  const renderPortalActivity = () => {
+    if (!canViewPortalActivity || !portalSummary) return null;
+    return (
+      <PortalActivityPanel
+        loading={portalLoading}
+        summary={portalSummary}
+        recent={portalRecent}
+      />
+    );
+  };
+
+  const writePlatformAudit = async (params: { firmId?: string; action: string; entityType: string; entityId?: string; details: string }) => {
+    if (!user) return;
+
+    await supabase.from('audit_logs').insert([{
+      firm_id: params.firmId ?? null,
+      user_id: user.id,
+      user_name: user.name,
+      user_role: user.role,
+      action: params.action,
+      entity_type: params.entityType,
+      entity_id: params.entityId,
+      details: params.details,
+    }]);
+  };
+
+  const openConfirmModal = (firm: FirmRow, action: 'suspend' | 'reactivate') => {
+    setConfirmModal({ isOpen: true, firm, action, reason: '' });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!user || !confirmModal.firm) return;
+    const { firm, action, reason } = confirmModal;
+    const nextStatus = action === 'suspend' ? 'Suspended' : 'Active';
+    setBusyAction(`firm-${firm.id}`);
+
+    try {
+      const updateData: Record<string, unknown> = {
+        status: nextStatus,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (action === 'suspend') {
+        updateData.suspension_reason = reason || 'No reason provided';
+        updateData.suspended_at = new Date().toISOString();
+        updateData.suspended_by = user.id;
+        updateData.reactivated_at = null;
+        updateData.reactivated_by = null;
+      } else {
+        updateData.reactivated_at = new Date().toISOString();
+        updateData.reactivated_by = user.id;
+        updateData.suspension_reason = null;
+        updateData.suspended_at = null;
+        updateData.suspended_by = null;
+      }
+
+      const { error } = await supabase
+        .from('firms')
+        .update(updateData)
+        .eq('id', firm.id);
+
+      if (error) throw error;
+
+      await writePlatformAudit({
+        firmId: firm.id,
+        action: nextStatus === 'Suspended' ? 'Firm Suspended' : 'Firm Reactivated',
+        entityType: 'Firm',
+        entityId: firm.id,
+        details: `${firm.name} marked as ${nextStatus} by GodAdmin. Reason: ${reason || 'N/A'}`,
+      });
+
+      setFirms((current) => current.map((item) => item.id === firm.id ? { ...item, status: nextStatus } : item));
+      setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '' });
+      toast.success(
+        action === 'suspend' ? 'Firm Suspended' : 'Firm Reactivated',
+        `${firm.name} has been ${nextStatus.toLowerCase()}.`
+      );
+    } catch (error) {
+      toast.error('Update Failed', error instanceof Error ? error.message : 'Firm status update failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const approveSubscription = async (subscription: SubscriptionRow) => {
+    if (!user) return;
+    playSound('success');
+    setBusyAction(`subscription-${subscription.id}`);
+    setMessage(null);
+
+    try {
+      const now = new Date();
+      const expiry = new Date(now);
+      expiry.setFullYear(expiry.getFullYear() + 1);
+
+      const { error } = await supabase
+        .from('subscriptions')
+        .update({
+          status: 'Active',
+          starts_at: now.toISOString(),
+          expires_at: expiry.toISOString(),
+          approved_by: user.id,
+          approved_at: now.toISOString(),
+          updated_by: user.id,
+          updated_at: now.toISOString(),
+        })
+        .eq('id', subscription.id);
+
+      if (error) throw error;
+
+      await supabase.from('notifications').insert([{
+        firm_id: subscription.firm_id,
+        created_by: user.id,
+        title: 'Subscription approved',
+        message: `${subscription.plan} subscription has been approved by CAATH.`,
+        audience_role: 'SuperAdmin',
+        status: 'UNREAD',
+      }]);
+
+      await writePlatformAudit({
+        firmId: subscription.firm_id,
+        action: 'Subscription Approved',
+        entityType: 'Subscription',
+        entityId: subscription.id,
+        details: `${subscription.plan} subscription approved by GodAdmin.`,
+      });
+
+      setSubscriptions((current) => current.map((item) => (
+        item.id === subscription.id
+          ? { ...item, status: 'Active', starts_at: now.toISOString(), expires_at: expiry.toISOString() }
+          : item
+      )));
+      setMessage('Subscription approved and firm notified.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Subscription approval failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const markPaymentReceived = async (subscription: SubscriptionRow) => {
+    if (!user) return;
+    setBusyAction(`payment-${subscription.id}`);
+    try {
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('subscriptions')
+        .update({
+          status: 'Active',
+          last_payment_date: now,
+          last_payment_status: 'Success',
+          updated_by: user.id,
+          updated_at: now,
+        })
+        .eq('id', subscription.id);
+
+      if (error) throw error;
+
+      await writePlatformAudit({
+        firmId: subscription.firm_id,
+        action: 'Payment Marked Received',
+        entityType: 'Subscription',
+        entityId: subscription.id,
+        details: `Manual payment receipt recorded for ${subscription.plan} subscription.`,
+      });
+
+      setSubscriptions((current) => current.map((item) => item.id === subscription.id ? { ...item, status: 'Active' } : item));
+      toast.success('Payment Recorded', 'Subscription payment marked as received manually.');
+    } catch (error) {
+      toast.error('Manual Update Failed', error instanceof Error ? error.message : 'Could not record payment.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const publishSystemNotice = async () => {
+    if (!user || !noticeText.trim()) return;
+    setBusyAction('system-notice');
+    setMessage(null);
+
+    try {
+      const { error } = await supabase.from('notifications').insert([{
+        firm_id: null,
+        created_by: user.id,
+        title: 'CAATH platform notice',
+        message: noticeText.trim(),
+        audience_role: 'SuperAdmin',
+        status: 'UNREAD',
+      }]);
+
+      if (error) throw error;
+
+      await writePlatformAudit({
+        action: 'System Notice Published',
+        entityType: 'Notification',
+        details: noticeText.trim(),
+      });
+
+      setNoticeText('');
+      setMessage('System notice published to firm owners.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'System notice failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const renderFirmOperations = () => (
+    <div className="bg-matte-black-light rounded-2xl border border-slate-800 overflow-hidden">
+      <table className="w-full text-left">
+        <thead className="bg-matte-black border-b border-slate-800">
+          <tr>
+            {['Firm', 'Status', 'Created', 'Action'].map((head) => (
+              <th key={head} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">{head}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-800">
+          {firms.map((firm) => (
+            <tr key={firm.id} className="hover:bg-matte-black">
+              <td className="px-6 py-4">
+                <p className="text-sm font-bold text-white">{firm.name}</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">{firm.id}</p>
+              </td>
+              <td className="px-6 py-4">
+                <span className={cn(
+                  'px-2 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider',
+                  firm.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'
+                )}>
+                  {firm.status}
+                </span>
+              </td>
+              <td className="px-6 py-4 text-sm text-slate-400">{new Date(firm.created_at).toLocaleDateString()}</td>
+              <td className="px-6 py-4">
+                <button
+                  onClick={() => openConfirmModal(firm, firm.status === 'Suspended' ? 'reactivate' : 'suspend')}
+                  disabled={busyAction === `firm-${firm.id}`}
+                  className={cn(
+                    'px-4 py-2 rounded-xl border text-xs font-bold transition-all disabled:opacity-50',
+                    firm.status === 'Suspended'
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      : 'bg-red-500/10 text-red-400 border-red-500/20'
+                  )}
+                >
+                  {firm.status === 'Suspended' ? 'Reactivate' : 'Suspend'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderSubscriptions = () => (
+    <div className="bg-matte-black-light rounded-2xl border border-slate-800 overflow-hidden">
+      <table className="w-full text-left">
+        <thead className="bg-matte-black border-b border-slate-800">
+          <tr>
+            {['Firm', 'Plan', 'Amount', 'Status', 'Expiry', 'Action'].map((head) => (
+              <th key={head} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">{head}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-800">
+          {subscriptions.map((subscription) => (
+            <tr key={subscription.id} className="hover:bg-matte-black">
+              <td className="px-6 py-4 text-sm font-bold text-white">{subscription.firm?.name ?? subscription.firm_id}</td>
+              <td className="px-6 py-4 text-sm text-slate-400">{subscription.plan}</td>
+              <td className="px-6 py-4 text-sm text-slate-400">Rs {Number(subscription.amount || 0).toLocaleString()}</td>
+              <td className="px-6 py-4">
+                <span className={cn(
+                  'px-2 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider',
+                  subscription.status === 'Active' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
+                )}>
+                  {subscription.status}
+                </span>
+              </td>
+              <td className="px-6 py-4 text-sm text-slate-400">{subscription.expires_at ? new Date(subscription.expires_at).toLocaleDateString() : '-'}</td>
+              <td className="px-6 py-4">
+                <div className="flex items-center gap-2">
+                  {subscription.status === 'Pending' && (
+                    <>
+                      <button
+                        onClick={() => approveSubscription(subscription)}
+                        disabled={busyAction === `subscription-${subscription.id}`}
+                        className="px-3 py-1.5 bg-gold text-matte-black rounded-lg text-xs font-bold hover:bg-gold/90 disabled:opacity-40"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => markPaymentReceived(subscription)}
+                        disabled={busyAction === `payment-${subscription.id}`}
+                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-40"
+                      >
+                        Mark Paid
+                      </button>
+                    </>
+                  )}
+                  {subscription.status === 'Active' && (
+                    <>
+                      <button
+                        onClick={async () => {
+                          setBusyAction(`pause-${subscription.id}`);
+                          setMessage(null);
+                          const { error } = await supabase.from('subscriptions').update({ status: 'Paused', updated_at: new Date().toISOString() }).eq('id', subscription.id);
+                          if (error) {
+                            setMessage(`Error: ${error.message}`);
+                          } else {
+                            await writePlatformAudit({
+                              firmId: subscription.firm_id,
+                              action: 'Subscription Paused',
+                              entityType: 'Subscription',
+                              entityId: subscription.id,
+                              details: `${subscription.plan} subscription paused manually by GodAdmin.`,
+                            });
+                            setMessage('Subscription paused successfully');
+                            loadPlatformData();
+                          }
+                          setBusyAction(null);
+                        }}
+                        disabled={busyAction === `pause-${subscription.id}`}
+                        className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 disabled:opacity-40"
+                      >
+                        Pause
+                      </button>
+                      <button
+                        onClick={() => {
+                          const firm = firms.find(f => f.id === subscription.firm_id);
+                          if (firm) setConfirmModal({ isOpen: true, firm, action: 'suspend', reason: '' });
+                        }}
+                        disabled={busyAction === `suspend-${subscription.id}`}
+                        className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-40"
+                      >
+                        Suspend
+                      </button>
+                    </>
+                  )}
+                  {subscription.status === 'Paused' && (
+                    <button
+                      onClick={async () => {
+                        setBusyAction(`resume-${subscription.id}`);
+                        setMessage(null);
+                        const { error } = await supabase.from('subscriptions').update({ status: 'Active', updated_at: new Date().toISOString() }).eq('id', subscription.id);
+                        if (error) {
+                          setMessage(`Error: ${error.message}`);
+                        } else {
+                          await writePlatformAudit({
+                            firmId: subscription.firm_id,
+                            action: 'Subscription Resumed',
+                            entityType: 'Subscription',
+                            entityId: subscription.id,
+                            details: `${subscription.plan} subscription resumed manually by GodAdmin.`,
+                          });
+                          setMessage('Subscription resumed successfully');
+                          loadPlatformData();
+                        }
+                        setBusyAction(null);
+                      }}
+                      disabled={busyAction === `resume-${subscription.id}`}
+                      className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-40"
+                    >
+                      Resume
+                    </button>
+                  )}
+                  {(subscription.status === 'Suspended' || subscription.status === 'Cancelled') && (
+                    <button
+                      onClick={async () => {
+                        setBusyAction(`reactivate-${subscription.id}`);
+                        setMessage(null);
+                        const { error } = await supabase.from('subscriptions').update({ status: 'Active', updated_at: new Date().toISOString() }).eq('id', subscription.id);
+                        if (error) {
+                          setMessage(`Error: ${error.message}`);
+                        } else {
+                          await writePlatformAudit({
+                            firmId: subscription.firm_id,
+                            action: 'Subscription Reactivated',
+                            entityType: 'Subscription',
+                            entityId: subscription.id,
+                            details: `${subscription.plan} subscription reactivated manually by GodAdmin.`,
+                          });
+                          setMessage('Subscription reactivated successfully');
+                          loadPlatformData();
+                        }
+                        setBusyAction(null);
+                      }}
+                      disabled={busyAction === `reactivate-${subscription.id}`}
+                      className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 disabled:opacity-40"
+                    >
+                      Reactivate
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderAudit = () => (
+    <div className="space-y-4">
+      {auditLogs.map((log) => (
+        <div key={log.id} className="p-5 bg-matte-black-light rounded-2xl border border-slate-800">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-bold text-white">{log.action}</p>
+              <p className="text-xs text-slate-500 mt-1">{log.details}</p>
+            </div>
+            <span className="text-[10px] text-gold font-bold uppercase tracking-wider">{log.user_role}</span>
+          </div>
+          <p className="text-[10px] text-slate-600 mt-3">{new Date(log.created_at).toLocaleString()} | {log.entity_type}</p>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderSystemNotice = () => (
+    <div className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 max-w-3xl">
+      <h3 className="text-lg font-bold text-white mb-4">Publish Platform Notice</h3>
+      <textarea
+        value={noticeText}
+        onChange={(event) => setNoticeText(event.target.value)}
+        placeholder="Write a system-wide operational notice for firm owners..."
+        className="w-full h-32 bg-matte-black border border-slate-800 rounded-xl p-4 text-sm text-white focus:ring-1 focus:ring-gold outline-none resize-none"
+      />
+      <button
+        onClick={publishSystemNotice}
+        disabled={!noticeText.trim() || busyAction === 'system-notice'}
+        className="mt-4 px-5 py-3 bg-gold text-matte-black rounded-xl text-sm font-bold disabled:opacity-40"
+      >
+        Publish Notice
+      </button>
+    </div>
+  );
+
+  const renderMainContent = () => {
+    if (activeTab === 'firms') return renderFirmOperations();
+    if (activeTab === 'subscriptions') return renderSubscriptions();
+    if (activeTab === 'platform-audit') return renderAudit();
+    if (activeTab === 'system-notices') return renderSystemNotice();
+
+    return (
+      <>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+          <Metric
+          label="Active Firms"
+          value={String(activeFirms)}
+          icon={Building2}
+          tone="text-emerald-400"
+          onClick={() => setDrilldownModal({ isOpen: true, type: 'active', title: 'Active Firms' })}
+          subtitle="Click for details"
+        />
+        <Metric
+          label="Suspended Firms"
+          value={String(suspendedFirms)}
+          icon={ShieldAlert}
+          tone="text-red-400"
+          onClick={() => setDrilldownModal({ isOpen: true, type: 'suspended', title: 'Suspended Firms' })}
+          subtitle="Click for details"
+        />
+        <Metric
+          label="Pending Subscriptions"
+          value={String(pendingSubscriptions)}
+          icon={Clock}
+          tone="text-amber-400"
+          onClick={() => setDrilldownModal({ isOpen: true, type: 'pending', title: 'Pending Subscriptions' })}
+          subtitle="Click for details"
+        />
+        <Metric
+          label="Active SaaS Revenue"
+          value={`Rs ${platformRevenue.toLocaleString()}`}
+          icon={TrendingUp}
+          onClick={() => setDrilldownModal({ isOpen: true, type: 'revenue', title: 'Revenue Analytics' })}
+          subtitle="Click for breakdown"
+        />
+        <Metric
+          label="Portal Launches (30d)"
+          value={String(portalTotal)}
+          icon={Activity}
+          tone="text-gold"
+          subtitle={`Failed: ${portalFailed} ${portalTop ? `• Top: ${portalTop[0]} (${portalTop[1]})` : ''}`}
+        />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div>
+            <SectionTitle title="Firm Operations" />
+            {renderFirmOperations()}
+          </div>
+          <div>
+            <SectionTitle title="Subscription Queue" />
+            {renderSubscriptions()}
+          </div>
+        </div>
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Suspense fallback={(
+            <div className="p-5 bg-matte-black-light rounded-2xl border border-slate-800">
+              <div className="h-24 w-full bg-slate-900/30 animate-pulse rounded" />
+            </div>
+          )}>
+            <GSTReconciliationSummary />
+          </Suspense>
+        </div>
+        <div className="mt-8">
+          {renderPortalActivity()}
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="p-8 space-y-8 h-full bg-matte-black text-slate-300 overflow-y-auto">
+      <div className="flex items-center justify-between gap-6">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center text-gold">
+              <Activity className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-3xl font-bold gold-text-gradient">CAATH Platform Control Tower</h2>
+              <p className="text-sm text-slate-500">Multi-firm SaaS operations, subscriptions, usage, and platform governance.</p>
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={loadPlatformData}
+          disabled={isLoading}
+          className="px-4 py-2 bg-matte-black-light border border-slate-800 rounded-xl text-sm font-bold text-slate-400 hover:text-gold disabled:opacity-50"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {message && (
+        <div className="p-4 bg-gold/10 border border-gold/20 rounded-xl text-sm text-gold">
+          {message}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="p-12 bg-matte-black-light border border-slate-800 rounded-2xl text-center text-slate-500">
+          Loading platform operations...
+        </div>
+      ) : (
+        renderMainContent()
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '' })}>
+          <div className="bg-matte-black-light border border-slate-800 rounded-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-800">
+              <h2 className="text-xl font-bold text-white">
+                {confirmModal.action === 'suspend' ? 'Suspend Firm' : 'Reactivate Firm'}
+              </h2>
+              <p className="text-slate-400 mt-1">
+                {confirmModal.action === 'suspend'
+                  ? `Are you sure you want to suspend ${confirmModal.firm?.name}? This will immediately block their access.`
+                  : `Are you sure you want to reactivate ${confirmModal.firm?.name}?`}
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              {confirmModal.action === 'suspend' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    Suspension Reason
+                  </label>
+                  <textarea
+                    value={confirmModal.reason}
+                    onChange={(e) => setConfirmModal({ ...confirmModal, reason: e.target.value })}
+                    placeholder="Enter reason for suspension..."
+                    rows={3}
+                    className="w-full p-3 bg-matte-black border border-slate-800 rounded-xl text-slate-300 placeholder-slate-600 focus:ring-1 focus:ring-gold outline-none resize-none"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t border-slate-800 flex gap-3">
+              <button
+                onClick={() => setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '' })}
+                className="flex-1 p-3 rounded-xl bg-slate-800 text-slate-300 font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmAction}
+                disabled={busyAction !== null}
+                className={cn(
+                  'flex-1 p-3 rounded-xl font-bold disabled:opacity-50',
+                  confirmModal.action === 'suspend' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                )}
+              >
+                {confirmModal.action === 'suspend' ? 'Suspend' : 'Reactivate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drilldown Modal */}
+      {drilldownModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setDrilldownModal({ isOpen: false, type: 'active', title: '' })}>
+          <div className="bg-matte-black-light border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">{drilldownModal.title}</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  {drilldownModal.type === 'active' && `${firms.filter(f => f.status === 'Active').length} Active Firms`}
+                  {drilldownModal.type === 'suspended' && `${firms.filter(f => f.status === 'Suspended').length} Suspended Firms`}
+                  {drilldownModal.type === 'pending' && `${subscriptions.filter(s => s.status === 'Pending').length} Pending Subscriptions`}
+                  {drilldownModal.type === 'revenue' && `Revenue breakdown across all active plans`}
+                </p>
+              </div>
+              <button
+                onClick={() => setDrilldownModal({ isOpen: false, type: 'active', title: '' })}
+                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <div className="p-4 border-b border-slate-800 flex items-center gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input
+                  type="text"
+                  value={drilldownSearch}
+                  onChange={(e) => setDrilldownSearch(e.target.value)}
+                  placeholder="Search by firm name..."
+                  className="w-full pl-10 pr-4 py-2 bg-matte-black border border-slate-800 rounded-xl text-sm text-white placeholder-slate-600 focus:ring-1 focus:ring-gold outline-none"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  const data = drilldownModal.type === 'revenue'
+                    ? subscriptions.filter(s => s.status === 'Active').map(s => ({ Firm: s.firm?.name, Plan: s.plan, Amount: s.amount, Status: s.status }))
+                    : drilldownModal.type === 'pending'
+                    ? subscriptions.filter(s => s.status === 'Pending').map(s => ({ Firm: s.firm?.name, Plan: s.plan, Amount: s.amount, Submitted: s.created_at }))
+                    : firms.filter(f => f.status === (drilldownModal.type === 'active' ? 'Active' : 'Suspended')).map(f => ({ Name: f.name, Status: f.status, Created: f.created_at }));
+                  const csv = data.length > 0 ? Object.keys(data[0]).join(',') + '\n' + data.map(row => Object.values(row).join(',')).join('\n') : '';
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${drilldownModal.type}-export.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-sm font-bold text-slate-300 flex items-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Export CSV
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              {drilldownModal.type === 'active' && (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-800">
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Firm Name</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Status</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Subscription</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Revenue</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {firms.filter(f => f.status === 'Active').filter(f => !drilldownSearch || f.name?.toLowerCase().includes(drilldownSearch.toLowerCase())).map(firm => {
+                      const sub = subscriptions.find(s => s.firm_id === firm.id);
+                      return (
+                        <tr key={firm.id} className="border-b border-slate-800/50 hover:bg-matte-black">
+                          <td className="py-4 text-sm font-bold text-white">{firm.name}</td>
+                          <td className="py-4"><span className="px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-bold uppercase">Active</span></td>
+                          <td className="py-4 text-sm text-slate-400">{sub?.plan || '-'}</td>
+                          <td className="py-4 text-sm text-slate-400">Rs {Number(sub?.amount || 0).toLocaleString()}</td>
+                          <td className="py-4 text-sm text-slate-500">{firm.created_at ? new Date(firm.created_at).toLocaleDateString() : '-'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+              {drilldownModal.type === 'suspended' && (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-800">
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Firm Name</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Status</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Plan</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Suspended On</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {firms.filter(f => f.status === 'Suspended').filter(f => !drilldownSearch || f.name?.toLowerCase().includes(drilldownSearch.toLowerCase())).map(firm => (
+                      <tr key={firm.id} className="border-b border-slate-800/50 hover:bg-matte-black">
+                        <td className="py-4 text-sm font-bold text-white">{firm.name}</td>
+                        <td className="py-4"><span className="px-2 py-1 rounded-lg bg-red-500/10 text-red-400 text-xs font-bold uppercase">Suspended</span></td>
+                        <td className="py-4 text-sm text-slate-400">{subscriptions.find(s => s.firm_id === firm.id)?.plan || '-'}</td>
+                        <td className="py-4 text-sm text-slate-500">{firm.updated_at ? new Date(firm.updated_at).toLocaleDateString() : '-'}</td>
+                        <td className="py-4">
+                          <button
+                            onClick={() => {
+                              setConfirmModal({ isOpen: true, firm, action: 'reactivate', reason: '' });
+                              setDrilldownModal({ isOpen: false, type: 'active', title: '' });
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold"
+                          >
+                            Reactivate
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {drilldownModal.type === 'pending' && (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-800">
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Firm</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Plan</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Amount</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Submitted</th>
+                      <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {subscriptions.filter(s => s.status === 'Pending').filter(s => !drilldownSearch || s.firm?.name?.toLowerCase().includes(drilldownSearch.toLowerCase())).map(sub => (
+                      <tr key={sub.id} className="border-b border-slate-800/50 hover:bg-matte-black">
+                        <td className="py-4 text-sm font-bold text-white">{sub.firm?.name}</td>
+                        <td className="py-4 text-sm text-slate-400">{sub.plan}</td>
+                        <td className="py-4 text-sm text-slate-400">Rs {Number(sub.amount || 0).toLocaleString()}</td>
+                        <td className="py-4 text-sm text-slate-500">{sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '-'}</td>
+                        <td className="py-4">
+                          <button
+                            onClick={() => approveSubscription(sub)}
+                            disabled={busyAction === `subscription-${sub.id}`}
+                            className="px-3 py-1.5 bg-gold text-matte-black hover:bg-gold/90 rounded-lg text-xs font-bold disabled:opacity-40"
+                          >
+                            Approve
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {drilldownModal.type === 'revenue' && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-3 gap-4">
+                    {['Starter', 'Professional', 'Enterprise'].map(plan => {
+                      const planSubs = subscriptions.filter(s => s.status === 'Active' && s.plan === plan);
+                      const planRevenue = planSubs.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+                      return (
+                        <div key={plan} className="p-4 bg-matte-black border border-slate-800 rounded-xl">
+                          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{plan}</p>
+                          <p className="text-2xl font-bold text-white mt-2">Rs {planRevenue.toLocaleString()}</p>
+                          <p className="text-xs text-slate-500 mt-1">{planSubs.length} subscribers</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-800">
+                        <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Firm</th>
+                        <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Plan</th>
+                        <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Monthly Value</th>
+                        <th className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider pb-3">Annual Run Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subscriptions.filter(s => s.status === 'Active').filter(s => !drilldownSearch || s.firm?.name?.toLowerCase().includes(drilldownSearch.toLowerCase())).map(sub => (
+                        <tr key={sub.id} className="border-b border-slate-800/50 hover:bg-matte-black">
+                          <td className="py-4 text-sm font-bold text-white">{sub.firm?.name}</td>
+                          <td className="py-4"><span className="px-2 py-1 rounded-lg bg-gold/10 text-gold text-xs font-bold uppercase">{sub.plan}</span></td>
+                          <td className="py-4 text-sm text-slate-400">Rs {Number(sub.amount || 0).toLocaleString()}</td>
+                          <td className="py-4 text-sm text-slate-400">Rs {(Number(sub.amount || 0) * 12).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-800 flex justify-between text-sm text-slate-500">
+              <span>Total: {drilldownModal.type === 'active' ? firms.filter(f => f.status === 'Active').length : drilldownModal.type === 'suspended' ? firms.filter(f => f.status === 'Suspended').length : drilldownModal.type === 'pending' ? subscriptions.filter(s => s.status === 'Pending').length : subscriptions.filter(s => s.status === 'Active').length} records</span>
+              <span>Live data as of {new Date().toLocaleTimeString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Metric: React.FC<{
+  label: string;
+  value: string;
+  icon: React.ElementType;
+  tone?: string;
+  onClick?: () => void;
+  subtitle?: string;
+}> = ({ label, value, icon: Icon, tone = 'text-gold', onClick, subtitle }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 12 }}
+    animate={{ opacity: 1, y: 0 }}
+    className={cn(
+      "p-5 bg-matte-black-light rounded-2xl border border-slate-800 transition-all cursor-pointer",
+      onClick && "hover:border-gold/50 hover:shadow-lg hover:shadow-gold/5 group"
+    )}
+    onClick={onClick}
+  >
+    <div className="flex items-center justify-between mb-4">
+      <Icon className={cn('w-5 h-5', tone)} />
+      {onClick && (
+        <Zap className="w-4 h-4 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+      )}
+      {!onClick && <Zap className="w-4 h-4 text-slate-700" />}
+    </div>
+    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</p>
+    <h3 className="text-2xl font-bold text-white mt-1">{value}</h3>
+    {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
+  </motion.div>
+);
+
+const SectionTitle: React.FC<{ title: string }> = ({ title }) => (
+  <div className="flex items-center gap-2 mb-4">
+    <FileCheck2 className="w-4 h-4 text-gold" />
+    <h3 className="text-lg font-bold text-white">{title}</h3>
+  </div>
+);

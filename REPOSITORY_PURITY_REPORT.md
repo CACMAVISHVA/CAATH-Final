@@ -1,0 +1,26 @@
+# Repository Purity Report
+
+## Objective Status
+- Enforce `UI -> Domain Service -> Repository -> Infrastructure/API -> Backend` for migrated domains.
+- Status: Completed for migrated domain services (`auth`, `tickets`, `gst`, `tasks`, `notices`, `clients`).
+
+## Key Changes
+- Added/used repository-only persistence paths for:
+  - tasks: `src/domains/tasks/repositories/TaskRepository.ts`
+  - notices: `src/domains/notices/repositories/NoticeRepository.ts`
+  - clients: `src/domains/clients/repositories/ClientRepository.ts`
+- Purified domain services to remove direct Supabase imports.
+- Added repository utility helper:
+  - `src/infrastructure/repositories/baseRepository.ts`
+
+## Testability Improvements
+- Domain services now orchestrate business rules and call repositories, enabling repository mocking.
+- Service functions are dependency-isolated from direct DB client imports.
+- Compatibility façades in `src/services/*.ts` remain intact for zero-break migration.
+
+## Event Standardization
+- Added domain event emitter utility: `src/domains/sharedEventEmitter.ts`.
+- Domain events emitted from purified services include task/client/notice domain signals without direct DB coupling.
+
+## Validation
+- Type validation passed: `npm run lint` (`tsc --noEmit`).

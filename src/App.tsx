@@ -3,304 +3,893 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState, useCallback } from 'react';
+import { motion } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, CreditCard } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
-import { ClientMaster } from './components/ClientMaster';
-import { ComplianceTracker } from './components/ComplianceTracker';
-import { TaskBoard } from './components/TaskBoard';
-import { NoticeCenter } from './components/NoticeCenter';
-import { BillingRevenue } from './components/BillingRevenue';
-import { ClientPortal } from './components/ClientPortal';
-import { StaffManagement } from './components/StaffManagement';
-import { GodAdminDashboard } from './components/GodAdminDashboard';
-import { AuditLog } from './components/AuditLog';
-import { LandingPage } from './components/LandingPage';
+const ClientMaster = lazy(() => import('./components/ClientMaster').then((module) => ({ default: module.ClientMaster })));
+const BillingRevenue = lazy(() => import('./components/BillingRevenue').then((module) => ({ default: module.BillingRevenue })));
+const ClientPortal = lazy(() => import('./components/ClientPortal').then((module) => ({ default: module.ClientPortal })));
+const StaffManagement = lazy(() => import('./components/StaffManagement').then((module) => ({ default: module.StaffManagement })));
+const AuditCenter = React.lazy(() => import('./components/AuditCenter').then((module) => ({ default: module.AuditCenter })));
+const EnterpriseCommandCenter = lazy(() => import('./domains/command-center').then((module) => ({ default: module.EnterpriseCommandCenter })));
+const RealtimeWorkspaceShell = lazy(() => import('./domains/workspace-shell').then((module) => ({ default: module.RealtimeWorkspaceShell })));
+const CollaborativeWorkspace = lazy(() => import('./domains/collaborative-workspace').then((module) => ({ default: module.CollaborativeWorkspace })));
+const GovernanceDashboard = lazy(() => import('./domains/governance-dashboard').then((module) => ({ default: module.GovernanceDashboard })));
+const LearningDashboard = lazy(() => import('./domains/learning-dashboard').then((module) => ({ default: module.LearningDashboard })));
+const AutomationDashboard = lazy(() => import('./domains/automation-dashboard').then((module) => ({ default: module.AutomationDashboard })));
+const IntegrationDashboard = lazy(() => import('./domains/integration-dashboard').then((module) => ({ default: module.IntegrationDashboard })));
+const AnalyticsDashboard = lazy(() => import('./domains/analytics-dashboard').then((module) => ({ default: module.AnalyticsDashboard })));
+const AICommandCenter = lazy(() => import('./domains/ai-command-center').then((module) => ({ default: module.AICommandCenter })));
+import { GlobalSearch, SearchResult } from './components/GlobalSearch';
 import { Logo } from './components/Logo';
-import { motion, AnimatePresence } from 'motion/react';
-import { LogIn, ShieldCheck, Zap, Globe, Lock, AlertTriangle, CreditCard, ShieldAlert, Crown, History as HistoryIcon } from 'lucide-react';
-import { UserRole, User } from './types';
-import { supabase } from './lib/supabase'
+import { Modal } from './components/Modal';
+import { useAuth } from './context/AuthContext';
+import { normalizeAuthError } from './lib/authErrorNormalizer';
+import { getUserFullName, getUserDisplayRole } from './lib/userHelpers';
+import { formatWorkspaceAlias } from './lib/tenantIdentity';
+import { ROLE_ACCESS, ROLE_HOME, canAccessTab } from './lib/permissions';
+import { supabase } from './lib/supabase';
+import { createAccountWithRole, SELF_SERVICE_ONBOARDING_ROLE } from './services/accountOnboardingService';
+import { ProtectedRoute } from './routes/ProtectedRoute';
+import { DashboardLoader } from './components/loaders/DashboardLoader';
+import { PageLoader } from './components/loaders/PageLoader';
+import { OnboardingModal } from './components/OnboardingModal';
+import { CommandAction } from './services/commandPaletteService';
+import { ContextualOperationsDrawer } from './components/ContextualOperationsDrawer';
+import { useCommandCenterShortcuts } from './domains/command-center';
+import { authService } from './domains/auth/services/authService';
+import {
+  WorkspacePreferences,
+  loadWorkspacePreferences,
+  saveWorkspacePreferences,
+} from './services/workspacePreferencesService';
+
+const ComplianceTracker = lazy(() => import('./components/ComplianceTracker'));
+const GSTIntelligenceCenter = lazy(() => import('./components/GSTIntelligenceCenter'));
+const TaskBoard = lazy(() => import('./components/TaskBoard').then((module) => ({ default: module.TaskBoard })));
+const NoticeCenter = lazy(() => import('./components/NoticeCenter').then((module) => ({ default: module.NoticeCenter })));
+const DocumentVault = lazy(() => import('./components/DocumentVault'));
+const NotificationRuntimeCenter = lazy(() => import('./components/NotificationRuntimeCenter'));
+const ProfileGovernance = lazy(() => import('./components/ProfileGovernance').then((module) => ({ default: module.ProfileGovernance })));
+const GodAdminDashboard = lazy(() => import('./components/GodAdminDashboard').then((module) => ({ default: module.GodAdminDashboard })));
+const ApprovalEngine = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.ApprovalEngine })));
+const AutomationCenter = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.AutomationCenter })));
+const AiFoundation = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.AiFoundation })));
+const SecurityCenter = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.SecurityCenter })));
+const OperationalQaInspector = lazy(() => import('./components/OperationalQaInspector'));
+const PayrollWorkspace = lazy(() => import('./components/PayrollWorkspace'));
 
 export default function App() {
-  useEffect(() => {
-  const testConnection = async () => {
-    const { data, error } = await supabase
-      .from('CLIENT LIST')
-      .select('*')
-
-    console.log('SUPABASE DATA:', data)
-    console.log('SUPABASE ERROR:', error)
-  }
-
-  testConnection()
-}, [])
-  const [view, setView] = useState<'landing' | 'app'>('app');
+  const { user, session, isLoading, error, login, logout } = useAuth();
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingCompleted, setOnboardingCompleted] = useState(false);
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubscribed, setIsSubscribed] = useState(true); // Default to true for demo
-  const [user, setUser] = useState<User>({ 
-    uid: 'sa1', 
-    name: 'CA Vishva', 
-    email: 'ca.vishva@firm.com', 
-    role: 'SuperAdmin', 
-    firmId: 'f1' 
+  const [isSubscribed, setIsSubscribed] = useState(true);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isOperationsDrawerOpen, setIsOperationsDrawerOpen] = useState(false);
+  const [workspacePrefs, setWorkspacePrefs] = useState<WorkspacePreferences>({
+    pinned: [],
+    recentNavigation: [],
+    recentSearches: [],
+  });
+  const [firmName, setFirmName] = useState<string>('');
+
+  const triggerQuickAction = useCallback((action: CommandAction | string) => {
+    const dispatch = (name: string) => window.dispatchEvent(new CustomEvent('caath:quick-action', { detail: { action: name } }));
+    switch (action) {
+      case 'open-realtime-workspace':
+        setActiveTab('workspace');
+        break;
+      case 'open-analytics':
+        setActiveTab('analytics');
+        break;
+      case 'open-ai-copilot':
+        setActiveTab('ai-copilot');
+        break;
+      case 'open-collaboration':
+      case 'create-handoff':
+      case 'mention-operator':
+      case 'open-team-queue':
+        setActiveTab('collaboration');
+        break;
+      case 'open-governance':
+      case 'explain-permission':
+      case 'open-audit-trail':
+      case 'open-approval-chain':
+        setActiveTab('governance');
+        break;
+      case 'open-autonomous-operations':
+        setActiveTab('autonomous');
+        break;
+      case 'open-integrations':
+        setActiveTab('integrations');
+        break;
+      case 'open-automation':
+      case 'trigger-workflow':
+        setActiveTab('automation');
+        break;
+      case 'open-learning':
+      case 'open-playbooks':
+      case 'show-similar-resolution':
+      case 'open-knowledge-graph':
+        setActiveTab('learning');
+        break;
+      case 'enter-deep-work':
+        setActiveTab('workspace');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('caath:workspace-hotkey', { detail: { mode: 'focus' } })), 50);
+        break;
+      case 'enter-rapid-triage':
+        setActiveTab('workspace');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('caath:workspace-hotkey', { detail: { layout: 'triage' } })), 50);
+        break;
+      case 'enter-executive-monitoring':
+        setActiveTab('workspace');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('caath:workspace-hotkey', { detail: { layout: 'executive' } })), 50);
+        break;
+      case 'restore-last-workflow':
+        setActiveTab('workspace');
+        setTimeout(() => window.dispatchEvent(new CustomEvent('caath:workspace-hotkey', { detail: { panel: 'timeline' } })), 50);
+        break;
+      case 'open-command-center':
+        setActiveTab('eox');
+        break;
+      case 'create-task':
+        setActiveTab('tasks');
+        setTimeout(() => dispatch('create-task'), 50);
+        break;
+      case 'create-client':
+        setActiveTab('clients');
+        setTimeout(() => dispatch('create-client'), 50);
+        break;
+      case 'assign-work':
+        setActiveTab('tasks');
+        setTimeout(() => dispatch('assign-work'), 50);
+        break;
+      case 'reassign-work':
+        setActiveTab('tasks');
+        setTimeout(() => dispatch('reassign-work'), 50);
+        break;
+      case 'open-approvals':
+        setActiveTab('approvals');
+        break;
+      case 'open-gst':
+        setActiveTab('gst');
+        break;
+      case 'open-clients':
+        setActiveTab('clients');
+        break;
+      case 'open-tasks':
+        setActiveTab('tasks');
+        break;
+      case 'open-documents':
+        setActiveTab('documents');
+        break;
+      case 'open-notices':
+        setActiveTab('notices');
+        break;
+      case 'open-notification-center':
+        setActiveTab('notifications');
+        break;
+      case 'bulk-resolve':
+        setActiveTab('tasks');
+        setTimeout(() => dispatch('bulk-resolve'), 50);
+        break;
+      case 'quick-approve':
+        setActiveTab('approvals');
+        setTimeout(() => dispatch('quick-approve'), 50);
+        break;
+      case 'open-ai-queue':
+        setActiveTab('tasks');
+        setTimeout(() => dispatch('open-ai-queue'), 50);
+        break;
+      case 'dispatch-ai-nudges':
+        setTimeout(() => dispatch('dispatch-ai-nudges'), 50);
+        break;
+      default:
+        break;
+    }
+  }, []);
+
+  const handleOnboardingComplete = useCallback(() => {
+    if (!user?.id) return;
+    localStorage.setItem(`caath-onboarding-completed-${user.id}`, 'true');
+    localStorage.removeItem(`caath-onboarding-hidden-${user.id}`);
+    setOnboardingCompleted(true);
+    setShowOnboarding(false);
+  }, [user?.id]);
+
+  const handleOnboardingDismiss = useCallback(() => {
+    if (!user?.id) return;
+    localStorage.setItem(`caath-onboarding-hidden-${user.id}`, 'true');
+    setShowOnboarding(false);
+  }, [user?.id]);
+
+  const handleOnboardingResume = useCallback(() => {
+    if (onboardingCompleted) return;
+    if (!user?.id) return;
+    localStorage.removeItem(`caath-onboarding-hidden-${user.id}`);
+    setShowOnboarding(true);
+  }, [onboardingCompleted, user?.id]);
+
+  const handleLogout = useCallback(async () => {
+    await logout();
+    setActiveTab('dashboard');
+    navigate('/');
+  }, [logout, navigate]);
+
+  const handleProfileOpen = useCallback(() => {
+    setIsProfileOpen(true);
+  }, []);
+
+  const handleProfileClose = useCallback(() => {
+    setIsProfileOpen(false);
+  }, []);
+
+  const allowedTabs = useMemo(() => (user ? ROLE_ACCESS[user.role] : []), [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (!allowedTabs.includes(activeTab)) {
+      setActiveTab(ROLE_HOME[user.role]);
+    }
+  }, [activeTab, allowedTabs, user]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const completed = localStorage.getItem(`caath-onboarding-completed-${user.id}`) === 'true';
+    const hidden = localStorage.getItem(`caath-onboarding-hidden-${user.id}`) === 'true';
+    setOnboardingCompleted(completed);
+    setShowOnboarding(!completed && !hidden);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    setWorkspacePrefs(loadWorkspacePreferences(user.id, user.role));
+  }, [user?.id, user?.role]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    saveWorkspacePreferences(user.id, workspacePrefs);
+  }, [user?.id, workspacePrefs]);
+
+  useEffect(() => {
+    const loadFirmIdentity = async () => {
+      if (!user?.firmId || user.role === 'GodAdmin') {
+        setFirmName('');
+        return;
+      }
+
+      const { data } = await supabase
+        .from('firms')
+        .select('name')
+        .eq('id', user.firmId)
+        .maybeSingle();
+
+      setFirmName(data?.name || '');
+    };
+
+    loadFirmIdentity();
+  }, [user?.firmId, user?.role]);
+
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsSearchOpen(false);
+      if (event.altKey && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        setIsSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, []);
+
+  useCommandCenterShortcuts({
+    openPalette: () => setIsSearchOpen(true),
+    executeAction: triggerQuickAction,
   });
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1500);
-    return () => clearTimeout(timer);
+    const handleNavigateTab = (event: Event) => {
+      const customEvent = event as CustomEvent<{ tab?: string }>;
+      const tab = customEvent.detail?.tab;
+      if (!tab) return;
+      setActiveTab(tab);
+    };
+    window.addEventListener('caath:navigate-tab', handleNavigateTab);
+    return () => window.removeEventListener('caath:navigate-tab', handleNavigateTab);
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const emailInput = (e.target as any).elements[0].value;
-    
-    // Specific login for GodAdmin
-    if (emailInput === 'vishva.030303@gmail.com') {
-      setUser({ 
-        uid: 'god1', 
-        name: 'SaaS Owner', 
-        email: 'vishva.030303@gmail.com', 
-        role: 'GodAdmin' 
-      });
-    } else {
-      // Default to SuperAdmin for other logins in this demo
-      setUser({ 
-        uid: 'sa1', 
-        name: 'CA Vishva', 
-        email: emailInput, 
-        role: 'SuperAdmin', 
-        firmId: 'f1' 
-      });
+  const wrap = (node: React.ReactNode, fallback: React.ReactNode = <PageLoader />) => (
+    <Suspense fallback={fallback}>{node}</Suspense>
+  );
+
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get('email') ?? '');
+    const password = String(formData.get('password') ?? '');
+    await login(email, password);
+  };
+
+  const renderContent = () => {
+    if (!user || !canAccessTab(user, activeTab)) {
+      return <ProtectedRoute roles={[]}><Dashboard /></ProtectedRoute>;
     }
-    
-    setIsAuthenticated(true);
+
+    if (user.role === 'GodAdmin') {
+      return (
+        <ProtectedRoute roles={['GodAdmin']}>
+          {wrap(<GodAdminDashboard activeTab={activeTab} />, <DashboardLoader />)}
+        </ProtectedRoute>
+      );
+    }
+
+    if (user.role === 'Client') {
+      return (
+        <ProtectedRoute roles={['Client']}>
+          {wrap(<ClientPortal user={user} activeTab={activeTab as 'overview' | 'documents' | 'messages' | 'compliance'} setActiveTab={setActiveTab} />)}
+        </ProtectedRoute>
+      );
+    }
+
+    switch (activeTab) {
+      case 'learning':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>
+            {wrap(
+              <LearningDashboard
+                onNavigate={setActiveTab}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'governance':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>
+            {wrap(
+              <GovernanceDashboard
+                user={user}
+                onNavigate={setActiveTab}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'collaboration':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>
+            {wrap(
+              <CollaborativeWorkspace
+                user={user}
+                pins={workspacePrefs.pinned}
+                recentNavigation={workspacePrefs.recentNavigation}
+                onNavigate={setActiveTab}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'workspace':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>
+            {wrap(
+              <RealtimeWorkspaceShell
+                user={user}
+                pins={workspacePrefs.pinned}
+                recentNavigation={workspacePrefs.recentNavigation}
+                onNavigate={setActiveTab}
+                onOpenSearch={() => setIsSearchOpen(true)}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'eox':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>
+            {wrap(
+              <EnterpriseCommandCenter
+                user={user}
+                pins={workspacePrefs.pinned}
+                recentNavigation={workspacePrefs.recentNavigation}
+                onNavigate={setActiveTab}
+                onOpenSearch={() => setIsSearchOpen(true)}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'dashboard':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}><Dashboard /></ProtectedRoute>;
+      case 'analytics':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>
+            {wrap(
+              <AnalyticsDashboard
+                user={user}
+                onNavigate={setActiveTab}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'ai-copilot':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>
+            {wrap(
+              <AICommandCenter
+                user={user}
+                onNavigate={setActiveTab}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'clients':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<ClientMaster assignedOnly={user.role === 'Staff'} assignedClients={user.assignedClients} />)}</ProtectedRoute>;
+      case 'compliance':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<ComplianceTracker />)}</ProtectedRoute>;
+      case 'gst':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}><GSTIntelligenceCenter /></ProtectedRoute>;
+      case 'tasks':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<TaskBoard />)}</ProtectedRoute>;
+      case 'documents':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<DocumentVault />)}</ProtectedRoute>;
+      case 'approvals':
+        return <ProtectedRoute roles={['GodAdmin', 'SuperAdmin', 'Admin']}>{wrap(<ApprovalEngine />)}</ProtectedRoute>;
+      case 'notices':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<NoticeCenter />)}</ProtectedRoute>;
+      case 'autonomous':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin']}>
+            {wrap(
+              <AutomationDashboard
+                user={user}
+                onNavigate={setActiveTab}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'integrations':
+        return (
+          <ProtectedRoute roles={['SuperAdmin', 'Admin']}>
+            {wrap(
+              <IntegrationDashboard
+                user={user}
+                onNavigate={setActiveTab}
+                onCommandAction={triggerQuickAction}
+              />,
+              <DashboardLoader />,
+            )}
+          </ProtectedRoute>
+        );
+      case 'automation':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<AutomationCenter />)}</ProtectedRoute>;
+      case 'notifications':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<NotificationRuntimeCenter />)}</ProtectedRoute>;
+      case 'ai':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<AiFoundation />)}</ProtectedRoute>;
+      case 'payroll':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<PayrollWorkspace />)}</ProtectedRoute>;
+      case 'billing':
+        return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<BillingRevenue />)}</ProtectedRoute>;
+      case 'staff':
+        return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<StaffManagement />)}</ProtectedRoute>;
+      case 'auditlog':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<AuditCenter />)}</ProtectedRoute>;
+      case 'security':
+        return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<SecurityCenter />)}</ProtectedRoute>;
+      case 'qa':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<OperationalQaInspector />)}</ProtectedRoute>;
+      default:
+        return <Dashboard />;
+    }
   };
-
-  const cycleRole = () => {
-    // Only allow GodAdmin to cycle roles for testing/demo purposes
-    if (user.role !== 'GodAdmin' && user.email !== 'vishva.030303@gmail.com') return;
-
-    const roles: UserRole[] = ['GodAdmin', 'SuperAdmin', 'Admin', 'Staff', 'Client'];
-    const currentIndex = roles.indexOf(user.role);
-    const nextIndex = (currentIndex + 1) % roles.length;
-    const nextRole = roles[nextIndex];
-    
-    setUser({ 
-      ...user, 
-      role: nextRole,
-      name: nextRole === 'GodAdmin' ? 'SaaS Owner' : nextRole === 'Client' ? 'Reliance Industries' : nextRole === 'Staff' ? 'CA Rahul' : 'CA Vishva',
-      assignedClients: nextRole === 'Staff' ? ['c1', 'c2'] : undefined,
-      firmId: nextRole === 'GodAdmin' ? undefined : 'f1',
-      services: nextRole === 'Client' ? ['GST', 'Income Tax', 'MCA'] : undefined
-    } as any);
-
-    if (nextRole === 'Client') setActiveTab('overview');
-    else setActiveTab('dashboard');
-  };
-
-  if (view === 'landing') {
-    return <LandingPage onEnterApp={() => setView('app')} />;
-  }
 
   if (isLoading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-matte-black text-white">
-        <motion.div 
-          animate={{ 
-            scale: [1, 1.1, 1],
-            opacity: [0.8, 1, 0.8]
-          }}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="mb-8"
+        <motion.div
+          animate={{ scale: [1, 1.08, 1], opacity: [0.82, 1, 0.82] }}
+          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+          className="mb-6"
         >
           <Logo size="xl" />
         </motion.div>
         <h2 className="text-xl font-bold tracking-tight gold-text-gradient">CAATH Practice OS</h2>
-        <p className="text-slate-500 text-sm mt-2">Initializing your premium workspace...</p>
+        <p className="text-slate-500 text-sm mt-1">Loading secure practice workspace...</p>
       </div>
     );
   }
 
-  if (!isAuthenticated) {
-    return (
-      <div className="h-screen w-screen grid grid-cols-1 lg:grid-cols-2 bg-matte-black">
-        <div className="flex flex-col items-center justify-center p-8 lg:p-24">
-          <div className="w-full max-w-md space-y-8">
-            <div className="flex items-center gap-3 mb-12">
-              <Logo size="md" />
-              <h1 className="text-2xl font-bold text-white gold-text-gradient">CAATH Practice OS</h1>
-            </div>
-
-            <div className="space-y-2">
-              <h2 className="text-3xl font-bold text-white">Sign in to your practice</h2>
-              <p className="text-slate-500">Welcome back! Please enter your details.</p>
-            </div>
-
-            <form onSubmit={handleLogin} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">Email Address</label>
-                <input 
-                  type="email" 
-                  required
-                  placeholder="your@email.com"
-                  className="w-full px-4 py-3 bg-matte-black-light border border-slate-800 rounded-xl text-sm text-white focus:ring-2 focus:ring-gold focus:border-transparent transition-all"
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-slate-300">Password</label>
-                  <button type="button" className="text-xs font-bold text-gold hover:underline">Forgot Password?</button>
-                </div>
-                <input 
-                  type="password" 
-                  required
-                  placeholder="••••••••"
-                  className="w-full px-4 py-3 bg-matte-black-light border border-slate-800 rounded-xl text-sm text-white focus:ring-2 focus:ring-gold focus:border-transparent transition-all"
-                />
-              </div>
-              <button 
-                type="submit"
-                className="w-full py-3 bg-gold text-matte-black rounded-xl font-bold hover:bg-gold-light transition-all shadow-lg shadow-gold/20 active:scale-[0.98]"
-              >
-                Sign In
-              </button>
-            </form>
-
-            <p className="text-center text-sm text-slate-500">
-              Don't have an account? <button className="font-bold text-gold hover:underline">Start free trial</button>
-            </p>
-          </div>
-        </div>
-
-        <div className="hidden lg:flex flex-col justify-center p-24 bg-matte-black-light text-white relative overflow-hidden border-l border-slate-800">
-          <div className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none">
-            <div className="absolute top-[-10%] right-[-10%] w-[60%] h-[60%] bg-gold rounded-full blur-[120px]" />
-            <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500 rounded-full blur-[100px]" />
-          </div>
-
-          <div className="relative z-10 space-y-12">
-            <div className="space-y-4">
-              <span className="px-3 py-1 bg-gold/20 text-gold rounded-full text-xs font-bold uppercase tracking-wider border border-gold/30">
-                New Feature: AI Document Extraction
-              </span>
-              <h3 className="text-5xl font-bold leading-tight">
-                The Premium Operating System <br />
-                <span className="gold-text-gradient">of your Practice.</span>
-              </h3>
-              <p className="text-xl text-slate-400 max-w-lg">
-                Stop juggling between Excel sheets and portal logins. Manage your entire practice from one unified platform.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-8">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-gold">
-                  <ShieldCheck className="w-5 h-5" />
-                  <span className="font-bold">Bank-Grade Security</span>
-                </div>
-                <p className="text-sm text-slate-500">Your client data is encrypted and backed up daily.</p>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-blue-400">
-                  <Zap className="w-5 h-5" />
-                  <span className="font-bold">AI Data Extraction</span>
-                </div>
-                <p className="text-sm text-slate-500">Automatically extract data from invoices and receipts.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+  if (!user) {
+    return <LoginScreen onLogin={handleLogin} error={error} onSignupSuccess={() => {}} />;
   }
 
   if (!isSubscribed && user.role === 'SuperAdmin') {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-matte-black text-white p-8">
-        <div className="w-full max-w-md p-8 bg-matte-black-light rounded-3xl border border-slate-800 text-center space-y-6 shadow-2xl">
-          <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 mx-auto">
-            <AlertTriangle className="w-10 h-10" />
+        <div className="w-full max-w-md p-6 bg-matte-black-light border border-slate-800 text-center space-y-5 shadow-2xl">
+          <div className="w-16 h-16 bg-red-500/10 flex items-center justify-center text-red-500 mx-auto">
+            <AlertTriangle className="w-8 h-8" />
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-bold">Subscription Expired</h2>
             <p className="text-slate-500 text-sm">Your monthly subscription has ended. Please renew to continue accessing your practice data.</p>
           </div>
-          <button 
+          <button
             onClick={() => setIsSubscribed(true)}
-            className="w-full py-4 bg-gold text-matte-black rounded-2xl font-bold hover:bg-gold-light transition-all flex items-center justify-center gap-3"
+            className="w-full py-3 bg-gold text-matte-black font-bold hover:bg-gold-light transition-all flex items-center justify-center gap-3"
           >
             <CreditCard className="w-5 h-5" />
             Renew Subscription
           </button>
-          <button className="text-sm text-slate-500 hover:text-white transition-colors">Contact Support</button>
         </div>
       </div>
     );
   }
 
-  const renderContent = () => {
-    if (user.role === 'GodAdmin') {
-      return <GodAdminDashboard />;
-    }
-
-    if (user.role === 'Client') {
-      return <ClientPortal user={user} activeTab={activeTab as any} setActiveTab={setActiveTab} />;
-    }
-
-    switch (activeTab) {
-      case 'dashboard': return <Dashboard />;
-      case 'clients': return <ClientMaster assignedOnly={user.role === 'Staff'} assignedClients={user.assignedClients} />;
-      case 'compliance': return <ComplianceTracker />;
-      case 'tasks': return <TaskBoard />;
-      case 'notices': return <NoticeCenter />;
-      case 'billing': return <BillingRevenue />;
-      case 'staff': return <StaffManagement />;
-      case 'auditlog': return <AuditLog />;
-      default: return <Dashboard />;
-    }
-  };
-
   return (
-    <div className="flex h-screen w-screen bg-matte-black overflow-hidden font-sans">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} />
-      <main className="flex-1 relative overflow-hidden">
-        <div className="absolute top-4 right-8 z-30 flex gap-4">
-          {(user.role === 'GodAdmin' || user.email === 'vishva.030303@gmail.com') && (
-            <button 
-              onClick={cycleRole}
-              className="px-4 py-2 bg-gold/10 text-gold border border-gold/20 rounded-xl text-xs font-bold hover:bg-gold/20 transition-all flex items-center gap-2"
+    <div className="flex h-screen bg-matte-black text-white">
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        user={user}
+        onLogout={handleLogout}
+        onProfileOpen={handleProfileOpen}
+      />
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <header className="h-14 shrink-0 border-b border-slate-800 bg-matte-black-light/40 px-5 flex items-center">
+          <div className="flex-1">
+            <p className="text-[10px] text-slate-500 uppercase tracking-[0.18em] font-bold">Protected Workspace</p>
+            <p className="text-sm text-slate-300">
+              {getUserFullName(user, session)} | {getUserDisplayRole(user)} | {user.role === 'GodAdmin' ? 'CAATH Platform' : `${firmName || 'Enterprise Workspace'} (${formatWorkspaceAlias(user.firmId)})`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {!onboardingCompleted && (
+              <button
+                onClick={handleOnboardingResume}
+                className="border border-slate-800 px-3 py-2 text-xs font-bold text-gold transition-colors hover:border-gold/40"
+              >
+                Resume Tour
+              </button>
+            )}
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              className="border border-slate-800 px-3 py-2 text-xs font-bold text-slate-400 transition-colors hover:border-gold/40 hover:text-white"
             >
-              {user.role === 'GodAdmin' ? <Crown className="w-3.5 h-3.5" /> : <ShieldAlert className="w-3.5 h-3.5" />}
-              Role: {user.role}
+              Search (Ctrl+K)
             </button>
-          )}
-          {user.role === 'SuperAdmin' && (
-            <button 
-              onClick={() => setIsSubscribed(false)}
-              className="px-4 py-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl text-xs font-bold hover:bg-red-500/20 transition-all"
-            >
-              Simulate Expired Sub
-            </button>
-          )}
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={`${user.role}-${activeTab}`}
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.02 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className="h-full w-full"
-          >
-            {renderContent()}
-          </motion.div>
-        </AnimatePresence>
+            {user.role !== 'Client' && (
+              <button
+                onClick={() => setIsOperationsDrawerOpen(true)}
+                className="flex items-center gap-2 border border-slate-800 px-3 py-2 text-xs font-bold text-slate-300 transition-colors hover:border-gold/40 hover:text-white"
+              >
+                Operations
+              </button>
+            )}
+          </div>
+        </header>
+        <section className="flex-1 overflow-hidden">
+          {renderContent()}
+        </section>
       </main>
+      <GlobalSearch
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        activeTab={activeTab}
+        onCommandAction={triggerQuickAction}
+        pins={workspacePrefs.pinned}
+        onPinsChange={(pins) => setWorkspacePrefs((prev) => ({ ...prev, pinned: pins }))}
+        recentSearchesProp={workspacePrefs.recentSearches}
+        recentNavigationProp={workspacePrefs.recentNavigation}
+        onRecentSearchesChange={(searches) => setWorkspacePrefs((prev) => ({ ...prev, recentSearches: searches }))}
+        onRecentNavigationChange={(items) => setWorkspacePrefs((prev) => ({ ...prev, recentNavigation: items }))}
+        onResultClick={(result: SearchResult) => {
+          if (result.type === 'clients') setActiveTab('clients');
+          if (result.type === 'tasks') setActiveTab('tasks');
+          if (result.type === 'documents') setActiveTab('documents');
+          if (result.type === 'notices') setActiveTab('notices');
+          if (result.type === 'automations') setActiveTab('automation');
+          if (result.type === 'approvals') setActiveTab('approvals');
+          if (result.type === 'workflows') setActiveTab('automation');
+        }}
+      />
+      {user.role !== 'Client' && (
+        <ContextualOperationsDrawer
+          activeTab={activeTab}
+          isOpen={isOperationsDrawerOpen}
+          onClose={() => setIsOperationsDrawerOpen(false)}
+          onOpenSearch={() => setIsSearchOpen(true)}
+          onCommandAction={triggerQuickAction}
+        />
+      )}
+
+      <OnboardingModal
+        isOpen={showOnboarding}
+        onClose={handleOnboardingDismiss}
+        onComplete={handleOnboardingComplete}
+        user={user}
+        workspacePrefs={workspacePrefs}
+        onWorkspacePrefsChange={setWorkspacePrefs}
+        onNavigate={(tab) => setActiveTab(tab)}
+      />
+
+      <Modal isOpen={isProfileOpen} onClose={handleProfileClose} title="Profile Governance" size="xl">
+        <Suspense fallback={<PageLoader />}>
+          <ProfileGovernance variant="modal" />
+        </Suspense>
+      </Modal>
     </div>
   );
 }
+
+const LoginScreen: React.FC<{
+  onLogin: (event: React.FormEvent<HTMLFormElement>) => void;
+  error: string | null;
+  onSignupSuccess: () => void;
+}> = ({ onLogin, error }) => {
+  const initialMode = React.useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    return params.get('auth') === 'recovery' || hashParams.get('type') === 'recovery' ? 'reset' : 'signin';
+  }, []);
+  const [authMode, setAuthMode] = React.useState<'signin' | 'signup' | 'forgot' | 'reset'>(initialMode);
+  const [localError, setLocalError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const { isDevMode } = React.useMemo(() => ({
+    isDevMode: import.meta.env.DEV
+  }), []);
+
+  const devUsers: Array<{ role: string; email: string }> = [];
+  const isCreateAccount = authMode === 'signup';
+  const isForgotPassword = authMode === 'forgot';
+  const isResetPassword = authMode === 'reset';
+
+  const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLocalError(null);
+    setNotice(null);
+    setIsLoading(true);
+
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get('email') ?? '').trim();
+    const password = String(formData.get('password') ?? '').trim();
+    const fullName = String(formData.get('fullName') ?? '').trim();
+    const firmId = String(formData.get('firmId') ?? '').trim();
+
+    if (isForgotPassword) {
+      try {
+        const redirectTo = `${window.location.origin}${window.location.pathname}?auth=recovery`;
+        await authService.sendPasswordReset(email, redirectTo);
+        setNotice('If an account exists for this email, a secure reset link has been sent.');
+        setAuthMode('signin');
+      } catch (resetError) {
+        setLocalError(normalizeAuthError(resetError).userMessage);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (isResetPassword) {
+      try {
+        if (password.length < 8) throw new Error('Password should be at least 8 characters.');
+        await authService.updatePassword(password);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setNotice('Password updated. Please sign in with your new password.');
+        setAuthMode('signin');
+      } catch (resetError) {
+        setLocalError(normalizeAuthError(resetError).userMessage);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    if (isCreateAccount) {
+      try {
+        if (!firmId) throw new Error('A valid firm workspace ID is required to create this account.');
+        await createAccountWithRole({
+          email,
+          password,
+          fullName: fullName || email.split('@')[0] || 'New User',
+          role: SELF_SERVICE_ONBOARDING_ROLE,
+          firmId,
+          actor: null,
+        });
+      } catch (signupError) {
+        setLocalError(normalizeAuthError(signupError).userMessage);
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(false);
+      setNotice('Account created. Please check your email to verify, then sign in.');
+      setAuthMode('signin');
+    } else {
+      try {
+        await onLogin(event);
+      } catch (loginError) {
+        setLocalError(normalizeAuthError(loginError).userMessage);
+      }
+    }
+    setIsLoading(false);
+  };
+
+  const fillCredential = (email: string) => {
+    const emailInput = document.querySelector('input[name="email"]') as HTMLInputElement;
+    if (emailInput) emailInput.value = email;
+  };
+
+  return (
+  <div className="min-h-screen bg-matte-black text-white flex items-center justify-center p-6">
+    <div className="w-full max-w-md">
+      <div className="text-center mb-8">
+        <div className="inline-flex items-center justify-center gap-3 mb-4">
+          <Logo size="lg" />
+        </div>
+        <h1 className="text-3xl font-bold gold-text-gradient mb-1">CAATH PMS</h1>
+        <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold">Secure Practice OS</p>
+      </div>
+
+      <div className="bg-matte-black-light border border-slate-800 p-6">
+        <h2 className="text-xl font-bold text-white mb-1">
+          {isCreateAccount ? 'Create Account' : isForgotPassword ? 'Reset Password' : isResetPassword ? 'Set New Password' : 'Sign In'}
+        </h2>
+        <p className="text-sm text-slate-500 mb-6">
+          {isCreateAccount ? 'Client self-service onboarding' : isForgotPassword ? 'Request a secure account recovery link' : isResetPassword ? 'Choose a new password for your account' : 'Secure access to your practice workspace'}
+        </p>
+
+        {(error || localError) && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-sm text-red-300">
+            {error || localError}
+          </div>
+        )}
+        {notice && (
+          <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-200">
+            {notice}
+          </div>
+        )}
+
+        <form onSubmit={handleAuth} className="space-y-4">
+          {!isResetPassword && (
+            <div>
+              {isCreateAccount && (
+                <>
+                  <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Full Name</label>
+                  <input
+                    name="fullName"
+                    type="text"
+                    required
+                    placeholder="Your full name"
+                    className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600 mb-4"
+                  />
+                </>
+              )}
+              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Email</label>
+              <input
+                name="email"
+                type="email"
+                required
+                placeholder="you@firm.com"
+                className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
+              />
+            </div>
+          )}
+          {!isForgotPassword && isCreateAccount && (
+            <div>
+              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Profile Type</label>
+              <input
+                value={SELF_SERVICE_ONBOARDING_ROLE}
+                readOnly
+                className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-slate-300 outline-none"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">Admin, SuperAdmin, and Staff accounts are created by approved provisioning workflows.</p>
+            </div>
+          )}
+          {!isForgotPassword && (
+            <div>
+              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">{isResetPassword ? 'New Password' : 'Password'}</label>
+              <input
+                name="password"
+                type="password"
+                required
+                minLength={8}
+                placeholder={isResetPassword ? 'Enter new password' : 'Enter password'}
+                className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
+              />
+            </div>
+          )}
+          {isCreateAccount && (
+            <>
+              <div>
+                <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Firm ID (Client onboarding)</label>
+                <input
+                  name="firmId"
+                  type="text"
+                  required
+                  placeholder="Firm workspace ID from your invitation"
+                  className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
+                />
+              </div>
+            </>
+          )}
+          <button type="submit" disabled={isLoading} className="w-full py-2.5 bg-gold text-matte-black font-bold hover:bg-gold-light disabled:opacity-50 transition-colors">
+            {isLoading ? 'Processing...' : isCreateAccount ? 'Create Account' : isForgotPassword ? 'Send Reset Link' : isResetPassword ? 'Update Password' : 'Sign In'}
+          </button>
+        </form>
+
+        <div className="mt-4 flex flex-col gap-2">
+          {!isResetPassword && (
+            <button
+              type="button"
+              onClick={() => { setAuthMode(isCreateAccount ? 'signin' : 'signup'); setLocalError(null); setNotice(null); }}
+              className="w-full py-2 text-sm text-slate-400 hover:text-gold transition-colors"
+            >
+              {isCreateAccount ? 'Already have an account? Sign In' : 'Create client account'}
+            </button>
+          )}
+          {!isCreateAccount && !isForgotPassword && !isResetPassword && (
+            <button
+              type="button"
+              onClick={() => { setAuthMode('forgot'); setLocalError(null); setNotice(null); }}
+              className="w-full py-1 text-xs text-slate-500 hover:text-gold transition-colors"
+            >
+              Forgot password?
+            </button>
+          )}
+          {(isForgotPassword || isResetPassword) && (
+            <button
+              type="button"
+              onClick={() => { setAuthMode('signin'); setLocalError(null); setNotice(null); }}
+              className="w-full py-1 text-xs text-slate-500 hover:text-gold transition-colors"
+            >
+              Back to sign in
+            </button>
+          )}
+        </div>
+      </div>
+
+      {isDevMode && devUsers.length > 0 && (
+        <div className="mt-6 p-4 bg-slate-900/50 border border-amber-500/20">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-2 h-2 bg-amber-400 animate-pulse" />
+            <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Dev Mode</span>
+          </div>
+          <div className="space-y-2">
+            {devUsers.map((cred) => (
+              <div key={cred.role} className="flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-bold">{cred.role}:</span>
+                <button
+                  type="button"
+                  onClick={() => fillCredential(cred.email)}
+                  className="flex items-center gap-1 hover:bg-slate-800 px-1 py-0.5 transition-colors"
+                >
+                  <code className="text-slate-300">{cred.email}</code>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+);};

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3002)",
+      "Bash(Get-Content \"V:\\\\CAATH\\\\CAATH\\\\supabase\\\\schema.sql\")",
+      "Bash(Select-Object -Last 30)",
+      "Bash(npx tsc *)",
+      "Bash(Select-Object -First 50)"
+    ]
+  }
+}

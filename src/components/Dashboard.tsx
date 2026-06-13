@@ -3,83 +3,194 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
-import { 
-  Users, 
-  ClipboardCheck, 
-  Bell, 
-  CreditCard, 
-  TrendingUp, 
-  AlertCircle, 
-  CheckCircle2, 
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import {
+  Users,
+  Bell,
+  CreditCard,
   Clock,
   Activity,
   Cpu,
-  Zap
 } from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  Cell,
-  PieChart,
-  Pie
-} from 'recharts';
 import { motion } from 'motion/react';
-import { cn } from '../lib/utils';
-
-const STATS = [
-  { label: 'Total Clients', value: '124', icon: Users, color: 'text-gold', bg: 'bg-gold/10' },
-  { label: 'Pending Filings', value: '18', icon: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10' },
-  { label: 'Active Notices', value: '4', icon: Bell, color: 'text-red-500', bg: 'bg-red-500/10' },
-  { label: 'Revenue (MTD)', value: '₹4.2L', icon: CreditCard, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-];
-
-const STAFF_PERFORMANCE = [
-  { name: 'Rahul', tasks: 45, docs: 120, rating: 4.8 },
-  { name: 'Priya', tasks: 38, docs: 95, rating: 4.5 },
-  { name: 'Amit', tasks: 52, docs: 140, rating: 4.9 },
-];
-
-const REVENUE_DATA = [
-  { name: 'Jan', value: 3.2 },
-  { name: 'Feb', value: 3.8 },
-  { name: 'Mar', value: 4.2 },
-  { name: 'Apr', value: 3.5 },
-  { name: 'May', value: 4.5 },
-  { name: 'Jun', value: 5.1 },
-];
-
-const COMPLIANCE_DATA = [
-  { name: 'GST', value: 45, color: '#10b981' },
-  { name: 'Income Tax', value: 30, color: '#3b82f6' },
-  { name: 'ROC', value: 15, color: '#f59e0b' },
-  { name: 'Audit', value: 10, color: '#ef4444' },
-];
-
-const RECENT_TASKS = [
-  { id: 1, title: 'GSTR-3B Filing - Reliance Ind.', status: 'Urgent', deadline: 'Today', client: 'Reliance Industries' },
-  { id: 2, title: 'TDS Payment - Tata Motors', status: 'Upcoming', deadline: 'Tomorrow', client: 'Tata Motors' },
-  { id: 3, title: 'Statutory Audit - HDFC Bank', status: 'In Progress', deadline: '25 Mar', client: 'HDFC Bank' },
-  { id: 4, title: 'ROC AOC-4 Filing - Infosys', status: 'Pending', deadline: '30 Mar', client: 'Infosys' },
-];
-
-const AI_QUEUE = [
-  { id: 1, name: 'Invoice_Reliance_Mar.pdf', status: 'Processing', progress: 65 },
-  { id: 2, name: 'Bank_Stmt_Tata_Q4.csv', status: 'Completed', progress: 100 },
-  { id: 3, name: 'Receipt_Travel_01.jpg', status: 'Queued', progress: 0 },
-];
+import { useAuth } from '../context/AuthContext';
+import {
+  getDashboardMetrics,
+  getRecentActivity,
+  DashboardMetrics,
+  ActivityItem
+} from '../services/dashboardService';
+import { getGSTDashboardSummary, GSTDashboardSummary } from '../services/gstAnalyticsService';
+import GSTReconciliationSummary from './GSTReconciliationSummary';
+import { getUserFirstName } from '../lib/userHelpers';
+import OperationalPanel from './OperationalPanel';
+import { format } from 'date-fns';
+import { getRevenueIntelligenceSnapshot, RevenueIntelligenceSnapshot } from '../services/revenueIntelligenceService';
+import { getServiceBoundaryGovernanceReport, ServiceBoundaryGovernanceReport } from '../services/architectureGovernanceService';
+import { aiOperationsOrchestrator, AIOpsDashboardIntelligence } from '../domains/ai-operations';
+import { AIOperationalInsightsPanel } from './AIOperationalInsightsPanel';
+import { enterpriseCognitionOrchestrator, EnterpriseCognitiveInput } from '../domains/cognitive-operations';
+import {
+  enterpriseCognitiveDashboardOrchestrator,
+  EnterpriseCognitiveDashboardViewModel,
+} from '../domains/cognitive-dashboard';
+import { EnterpriseCognitiveDashboardPanel } from './EnterpriseCognitiveDashboardPanel';
+const DashboardCharts = lazy(() => import('./DashboardCharts'));
 
 export const Dashboard: React.FC = () => {
+  const { user, session } = useAuth();
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [gstSummary, setGstSummary] = useState<GSTDashboardSummary | null>(null);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [revenueSnapshot, setRevenueSnapshot] = useState<RevenueIntelligenceSnapshot | null>(null);
+  const [governanceReport, setGovernanceReport] = useState<ServiceBoundaryGovernanceReport | null>(null);
+  const [aiIntelligence, setAiIntelligence] = useState<AIOpsDashboardIntelligence | null>(null);
+  const [cognitiveViewModel, setCognitiveViewModel] = useState<EnterpriseCognitiveDashboardViewModel | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadDashboardData = useCallback(async () => {
+    if (!user?.firmId) return;
+
+    setLoading(true);
+    try {
+      const [metricsData, activityData, gstSummaryData, revenueData, governanceData] = await Promise.all([
+        getDashboardMetrics(user.firmId),
+        getRecentActivity(user.firmId, 10),
+        getGSTDashboardSummary(user.firmId),
+        getRevenueIntelligenceSnapshot(user.firmId),
+        getServiceBoundaryGovernanceReport(),
+      ]);
+      setMetrics(metricsData);
+      setActivity(activityData);
+      setGstSummary(gstSummaryData);
+      setRevenueSnapshot(revenueData);
+      setGovernanceReport(governanceData);
+      const cognitiveInput = buildCognitiveInput(user.firmId, metricsData, gstSummaryData);
+      const cognitiveOutput = enterpriseCognitionOrchestrator.evaluate(cognitiveInput);
+      setCognitiveViewModel(
+        enterpriseCognitiveDashboardOrchestrator.toViewModel({ cognitiveOutput }),
+      );
+      if (user) {
+        const aiData = await aiOperationsOrchestrator.getDashboardIntelligence(user);
+        setAiIntelligence(aiData);
+      }
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.firmId]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  useEffect(() => {
+    const dispatchNudges = async () => {
+      if (!user) return;
+      const dayKey = `caath:aiops:nudges:${user.id}:${new Date().toISOString().slice(0, 10)}`;
+      if (window.localStorage.getItem(dayKey)) return;
+      await aiOperationsOrchestrator.dispatchOperationalNudges(user);
+      window.localStorage.setItem(dayKey, 'true');
+    };
+    dispatchNudges();
+  }, [user]);
+
+  useEffect(() => {
+    const onQuickAction = async (event: Event) => {
+      const custom = event as CustomEvent<{ action?: string }>;
+      if (!user || custom.detail?.action !== 'dispatch-ai-nudges') return;
+      await aiOperationsOrchestrator.dispatchOperationalNudges(user);
+      await loadDashboardData();
+    };
+    window.addEventListener('caath:quick-action', onQuickAction);
+    return () => window.removeEventListener('caath:quick-action', onQuickAction);
+  }, [user, loadDashboardData]);
+
+  const formatCurrency = (amount: number) => {
+    if (amount >= 100000) {
+      return `₹${(amount / 100000).toFixed(1)}L`;
+    } else if (amount >= 1000) {
+      return `₹${(amount / 1000).toFixed(1)}K`;
+    }
+    return `₹${amount.toFixed(0)}`;
+  };
+
+  const stats = metrics ? [
+    {
+      label: 'Active Clients',
+      value: metrics.activeClients.toString(),
+      icon: Users,
+      color: 'text-gold',
+      bg: 'bg-gold/10',
+      trend: '+0%',
+    },
+    {
+      label: 'Pending Filings',
+      value: metrics.filingCount.toString(),
+      icon: Clock,
+      color: 'text-amber-500',
+      bg: 'bg-amber-500/10',
+      trend: '+0',
+    },
+    {
+      label: 'Active Notices',
+      value: metrics.noticesPending.toString(),
+      icon: Bell,
+      color: 'text-red-500',
+      bg: 'bg-red-500/10',
+      trend: '+0',
+    },
+    {
+      label: 'Revenue (MTD)',
+      value: formatCurrency(metrics.revenue),
+      icon: CreditCard,
+      color: 'text-emerald-500',
+      bg: 'bg-emerald-500/10',
+      trend: '+0%',
+    },
+  ] : [
+    { label: 'Active Clients', value: '-', icon: Users, color: 'text-gold', bg: 'bg-gold/10', trend: '-0%' },
+    { label: 'Pending Filings', value: '-', icon: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10', trend: '-0' },
+    { label: 'Active Notices', value: '-', icon: Bell, color: 'text-red-500', bg: 'bg-red-500/10', trend: '-0' },
+    { label: 'Revenue (MTD)', value: '-', icon: CreditCard, color: 'text-emerald-500', bg: 'bg-emerald-500/10', trend: '-0%' },
+  ];
+
+  const taskStats = metrics ? [
+    { label: 'Total Tasks', value: metrics.totalTasks },
+    { label: 'Completed', value: metrics.completedTasks },
+    { label: 'In Progress', value: metrics.inProgressTasks },
+    { label: 'Overdue', value: metrics.overdueTasks },
+  ] : [
+    { label: 'Total Tasks', value: 0 },
+    { label: 'Completed', value: 0 },
+    { label: 'In Progress', value: 0 },
+    { label: 'Overdue', value: 0 },
+  ];
+
+  const revenueData = [
+    { name: 'Jan', value: 0 },
+    { name: 'Feb', value: 0 },
+    { name: 'Mar', value: 0 },
+    { name: 'Apr', value: 0 },
+    { name: 'May', value: 0 },
+    { name: 'Jun', value: 0 },
+  ];
+
+  if (metrics?.revenue) {
+    revenueData[5].value = metrics.revenue / 100000;
+  }
+
+  const showCognitivePanel = !loading && cognitiveViewModel !== null;
+
   return (
     <div className="p-8 space-y-8 overflow-y-auto h-full bg-matte-black text-slate-300">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold gold-text-gradient">Welcome back, CA Vishva</h2>
+          <h2 className="text-3xl font-bold gold-text-gradient">
+            Welcome back, {getUserFirstName(user, session)}
+          </h2>
           <div className="flex items-center gap-4 mt-1">
             <p className="text-slate-500">Here's what's happening in your practice today.</p>
             <div className="flex items-center gap-2 px-2 py-0.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded-full text-[10px] font-bold uppercase tracking-wider">
@@ -93,277 +204,349 @@ export const Dashboard: React.FC = () => {
             <Cpu className="w-4 h-4 text-gold" />
             <span className="text-xs font-bold text-slate-400">AI Engine: <span className="text-emerald-500 uppercase">Active</span></span>
           </div>
-          <button className="px-6 py-2 bg-gold text-matte-black rounded-xl font-bold hover:bg-gold-light transition-all shadow-lg shadow-gold/20">
-            Add New Task
-          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {STATS.map((stat, idx) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl hover:border-gold/30 transition-all group"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className={`p-3 rounded-xl ${stat.bg} border border-gold/10`}>
-                <stat.icon className={`w-6 h-6 ${stat.color}`} />
-              </div>
-              <div className="flex items-center gap-1 text-gold text-xs font-bold">
-                <TrendingUp className="w-3 h-3" />
-                +12%
-              </div>
-            </div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{stat.label}</p>
-            <h3 className="text-2xl font-bold text-white mt-1 group-hover:gold-text-gradient transition-all">{stat.value}</h3>
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-white">Revenue Analytics</h3>
-            <select className="text-xs bg-matte-black border border-slate-800 rounded-lg px-3 py-1.5 text-slate-400 focus:ring-1 focus:ring-gold outline-none">
-              <option>Last 6 Months</option>
-              <option>Last Year</option>
-            </select>
-          </div>
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={REVENUE_DATA}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                <XAxis 
-                  dataKey="name" 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#64748b', fontSize: 12 }} 
-                  dy={10}
-                />
-                <YAxis 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#64748b', fontSize: 12 }}
-                  dx={-10}
-                />
-                <Tooltip 
-                  cursor={{ fill: '#0f172a' }}
-                  contentStyle={{ backgroundColor: '#121212', borderRadius: '12px', border: '1px solid #d4af37', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)' }}
-                />
-                <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                  {REVENUE_DATA.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={index === REVENUE_DATA.length - 1 ? '#d4af37' : '#1e293b'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+      {/* Loading State */}
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
         </div>
+      )}
 
-        <div className="space-y-8">
-          <div className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl">
-            <h3 className="text-lg font-bold text-white mb-6">Compliance Mix</h3>
-            <div className="h-[200px] w-full relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={COMPLIANCE_DATA}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={70}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {COMPLIANCE_DATA.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span className="text-xl font-bold text-white">100%</span>
-                <span className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">Total Filings</span>
-              </div>
-            </div>
-            <div className="mt-4 space-y-2">
-              {COMPLIANCE_DATA.map((item) => (
-                <div key={item.name} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-                    <span className="text-xs text-slate-400">{item.name}</span>
-                  </div>
-                  <span className="text-xs font-bold text-white">{item.value}%</span>
+      {/* Stats Grid */}
+      {!loading && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {stats.map((stat, idx) => (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: idx * 0.1 }}
+              className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl hover:border-gold/30 transition-all group"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className={`p-3 rounded-xl ${stat.bg} border border-gold/10`}>
+                  <stat.icon className={`w-6 h-6 ${stat.color}`} />
                 </div>
-              ))}
-            </div>
+              </div>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{stat.label}</p>
+              <h3 className="text-2xl font-bold text-white mt-1 group-hover:gold-text-gradient transition-all">{stat.value}</h3>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* Main Content Grid */}
+      {!loading && (
+        <AIOperationalInsightsPanel intelligence={aiIntelligence} loading={loading} />
+      )}
+
+      {showCognitivePanel && cognitiveViewModel && (
+        <EnterpriseCognitiveDashboardPanel viewModel={cognitiveViewModel} />
+      )}
+
+      {!loading && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2">
+            <Suspense fallback={
+              <div className="grid gap-8">
+                <div className="h-[300px] bg-slate-900/30 rounded-2xl animate-pulse" />
+                <div className="h-[200px] bg-slate-900/30 rounded-2xl animate-pulse" />
+              </div>
+            }>
+              <DashboardCharts metrics={metrics || ({} as DashboardMetrics)} />
+            </Suspense>
           </div>
 
           <div className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-white">AI Extraction Queue</h3>
-              <Zap className="w-4 h-4 text-gold animate-pulse" />
-            </div>
-            <div className="space-y-4">
-              {AI_QUEUE.map((doc) => (
-                <div key={doc.id} className="space-y-2">
-                  <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider">
-                    <span className="text-slate-400 truncate max-w-[120px]">{doc.name}</span>
-                    <span className={doc.status === 'Completed' ? 'text-emerald-500' : 'text-gold'}>{doc.status}</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                    <motion.div 
-                      initial={{ width: 0 }}
-                      animate={{ width: `${doc.progress}%` }}
-                      className={cn(
-                        "h-full rounded-full",
-                        doc.status === 'Completed' ? 'bg-emerald-500' : 'bg-gold'
-                      )}
-                    />
-                  </div>
+            <h3 className="text-sm font-bold text-white mb-4">Task Summary</h3>
+            <div className="space-y-3">
+              {taskStats.map((stat) => (
+                <div key={stat.label} className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400">{stat.label}</span>
+                  <span className="text-sm font-bold text-white">{stat.value}</span>
                 </div>
               ))}
             </div>
+            {metrics?.pendingApprovals !== undefined && metrics.pendingApprovals > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-amber-400 font-bold">Pending Approvals</span>
+                  <span className="text-sm font-bold text-amber-400">{metrics.pendingApprovals}</span>
+                </div>
+              </div>
+            )}
+            <div className="mt-6 pt-6 border-t border-slate-800 space-y-3">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Escalation Alerts</span>
+                <span className="font-bold text-amber-400">{metrics?.escalationAlerts ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Overloaded Staff</span>
+                <span className="font-bold text-red-400">{metrics?.overloadedStaff ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Reassignment Events</span>
+                <span className="font-bold text-gold">{metrics?.reassignmentEvents ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Pending Workloads</span>
+                <span className="font-bold text-white">{metrics?.pendingWorkloads ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Workflow Integrity Score</span>
+                <span className="font-bold text-emerald-300">{metrics?.integrityHealthScore ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Orphan Workflows</span>
+                <span className="font-bold text-amber-300">{metrics?.orphanWorkflowCount ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>Notice/Task Sync Failures</span>
+                <span className="font-bold text-red-300">{metrics?.noticeTaskSyncFailures ?? 0}</span>
+              </div>
+            </div>          </div>
+        </div>
+      )}
+
+      {!loading && (
+        <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-6">
+          <div className="rounded-3xl border border-slate-800 bg-matte-black-light p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-slate-500">GST Notice-Risk Intelligence</p>
+                <h3 className="mt-2 text-2xl font-bold text-white">Reconciliation & compliance health</h3>
+              </div>
+              <div className="rounded-full border border-slate-800 bg-slate-950/80 px-4 py-2 text-xs uppercase tracking-widest text-slate-300">
+                {gstSummary ? `${gstSummary.totalClientsWithGST} GST clients` : 'Loading intelligence...'}
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5">
+                <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Pending filings</p>
+                <p className="mt-3 text-3xl font-bold text-white">{gstSummary?.pendingFilings ?? '-'}</p>
+                <p className="text-xs text-slate-400 mt-2">GST returns still waiting for action across your ledger clients.</p>
+              </div>
+              <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5">
+                <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Overdue filings</p>
+                <p className="mt-3 text-3xl font-bold text-white">{gstSummary?.overdueFilings ?? '-'}</p>
+                <p className="text-xs text-slate-400 mt-2">Late returns and filing delays increasing notice exposure.</p>
+              </div>
+              <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5">
+                <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Mismatch exposure</p>
+                <p className="mt-3 text-3xl font-bold text-white">{gstSummary ? `₹${gstSummary.totalTaxExposed.toLocaleString()}` : '-'}</p>
+                <p className="text-xs text-slate-400 mt-2">Projected tax exposure from notice-risk and reconciliation mismatches.</p>
+              </div>
+              <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5">
+                <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Clients with mismatches</p>
+                <p className="mt-3 text-3xl font-bold text-white">{gstSummary?.clientsWithMismatches ?? '-'}</p>
+                <p className="text-xs text-slate-400 mt-2">Clients flagged with potential GST reconciliation or filing drift.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <GSTReconciliationSummary />
+            <div className="rounded-3xl border border-slate-800 bg-matte-black-light p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-slate-500">GST Practice Signals</p>
+                  <h3 className="mt-2 text-2xl font-bold text-white">Notice risk pulse</h3>
+                </div>
+                <div className="rounded-full bg-slate-900/80 px-3 py-2 text-xs uppercase tracking-widest text-slate-300">Live</div>
+              </div>
+              <div className="mt-6 grid gap-3">
+                <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">GST clients filing on time</p>
+                  <p className="mt-2 text-xl font-bold text-white">{gstSummary?.clientsFilingOnTime ?? '-'}</p>
+                </div>
+                <div className="rounded-3xl border border-slate-800 bg-slate-950/80 p-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Total GST clients</p>
+                  <p className="mt-2 text-xl font-bold text-white">{gstSummary?.totalClientsWithGST ?? '-'}</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-white">Staff Performance</h3>
-            <button className="text-xs text-gold font-bold hover:underline">View Detailed Analytics</button>
+      {!loading && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <OperationalPanel />
           </div>
-          <div className="space-y-4">
-            {STAFF_PERFORMANCE.map((staff, idx) => (
-              <div key={staff.name} className="flex items-center gap-4 p-4 rounded-xl border border-slate-800 hover:bg-matte-black transition-all group">
-                <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-gold font-bold border border-slate-700">
-                  {staff.name.charAt(0)}
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-bold text-white group-hover:text-gold transition-colors">{staff.name}</h4>
-                  <div className="flex items-center gap-4 mt-1">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Tasks: {staff.tasks}</span>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Docs: {staff.docs}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-1 text-gold font-bold">
-                    <span>{staff.rating}</span>
-                    <TrendingUp className="w-3 h-3" />
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Rating</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-6 gold-gradient rounded-2xl border border-gold/20 shadow-2xl text-matte-black">
-          <h3 className="text-lg font-bold mb-4">Market Insights</h3>
-          <p className="text-xs font-medium mb-6 opacity-80">
-            We've analyzed the top 5 PMS (Karbon, Canopy, TaxDome, Jetpack, Ignition) and integrated their best features:
-          </p>
-          <ul className="space-y-4">
-            <li className="flex items-start gap-3">
-              <CheckCircle2 className="w-4 h-4 mt-0.5" />
-              <div>
-                <p className="text-xs font-bold">Unified Workflow</p>
-                <p className="text-[10px] opacity-70">Single source of truth for all compliance.</p>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <CheckCircle2 className="w-4 h-4 mt-0.5" />
-              <div>
-                <p className="text-xs font-bold">AI Data Extraction</p>
-                <p className="text-[10px] opacity-70">Automated OCR for invoices & bank statements.</p>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <CheckCircle2 className="w-4 h-4 mt-0.5" />
-              <div>
-                <p className="text-xs font-bold">Secure Client Portal</p>
-                <p className="text-[10px] opacity-70">Direct document vault & secure messaging.</p>
-              </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <CheckCircle2 className="w-4 h-4 mt-0.5" />
-              <div>
-                <p className="text-xs font-bold">Performance Tracking</p>
-                <p className="text-[10px] opacity-70">Real-time staff efficiency metrics.</p>
-              </div>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-8">
-        <div className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-white">Urgent Tasks</h3>
-            <button className="text-xs text-gold font-bold hover:underline">View All</button>
-          </div>
-          <div className="space-y-4">
-            {RECENT_TASKS.map((task) => (
-              <div key={task.id} className="flex items-center gap-4 p-4 rounded-xl border border-slate-800 hover:bg-matte-black transition-all group">
-                <div className={cn(
-                  "w-10 h-10 rounded-full flex items-center justify-center",
-                  task.status === 'Urgent' ? 'bg-red-500/10 text-red-500' : 'bg-slate-800 text-slate-500'
-                )}>
-                  {task.status === 'Urgent' ? <AlertCircle className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-sm font-bold text-white truncate group-hover:text-gold transition-colors">{task.title}</h4>
-                  <p className="text-xs text-slate-500">{task.client}</p>
-                </div>
-                <div className="text-right">
-                  <p className={cn(
-                    "text-xs font-bold",
-                    task.status === 'Urgent' ? 'text-red-500' : 'text-slate-500'
-                  )}>{task.deadline}</p>
-                  <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">{task.status}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="p-6 bg-matte-black-light rounded-2xl border border-slate-800 shadow-xl">
-          <h3 className="text-lg font-bold text-white mb-6">Compliance Heatmap</h3>
-          <div className="grid grid-cols-7 gap-2">
-            {Array.from({ length: 28 }).map((_, i) => (
-              <div 
-                key={i} 
-                className={cn(
-                  "aspect-square rounded-md",
-                  i % 7 === 0 ? 'bg-red-500' : 
-                  i % 5 === 0 ? 'bg-amber-400' : 
-                  i % 3 === 0 ? 'bg-emerald-400' : 'bg-slate-800'
+          <div>
+            <div className="rounded-2xl border border-slate-800 bg-matte-black-light p-4">
+              <h3 className="text-lg font-bold text-white">Recent Activity</h3>
+              <div className="mt-4 space-y-3">
+                {activity.length === 0 ? (
+                  <p className="text-slate-500 text-sm text-center py-8">No recent activity. Start by creating tasks or adding clients.</p>
+                ) : (
+                  activity.slice(0, 8).map((item) => (
+                    <div key={item.id} className="flex items-start gap-4 p-3 rounded-xl hover:bg-matte-black transition-colors">
+                      <div className="w-8 h-8 rounded-full bg-gold/10 border border-gold/20 flex items-center justify-center shrink-0">
+                        <Activity className="w-4 h-4 text-gold" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white">
+                          <span className="font-bold text-gold">{item.userName}</span>
+                          {' '}
+                          <span className="text-slate-300">{item.action}</span>
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1 truncate">{item.details}</p>
+                        <p className="text-[10px] text-slate-600 mt-1 uppercase">
+                          {format(new Date(item.createdAt), 'MMM d, yyyy h:mm a')}
+                        </p>
+                      </div>
+                    </div>
+                  ))
                 )}
-                title={`Day ${i + 1}`}
-              />
-            ))}
-          </div>
-          <div className="mt-6 flex items-center justify-between text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-slate-800" />
-              <span>No Due Dates</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-emerald-400" />
-              <span>Low Volume</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm bg-red-500" />
-              <span>High Volume</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {!loading && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="p-5 bg-matte-black-light rounded-2xl border border-slate-800">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Receivables Pending</p>
+            <p className="text-2xl font-bold text-white mt-2">
+              {revenueSnapshot ? formatCurrency(revenueSnapshot.kpis.receivablesPending) : '-'}
+            </p>
+          </div>
+          <div className="p-5 bg-matte-black-light rounded-2xl border border-slate-800">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Overdue Collections</p>
+            <p className="text-2xl font-bold text-red-400 mt-2">
+              {revenueSnapshot ? formatCurrency(revenueSnapshot.kpis.overdueCollections) : '-'}
+            </p>
+          </div>
+          <div className="p-5 bg-matte-black-light rounded-2xl border border-slate-800">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Completed Awaiting Billing</p>
+            <p className="text-2xl font-bold text-amber-400 mt-2">
+              {revenueSnapshot?.kpis.completedTasksAwaitingBilling ?? '-'}
+            </p>
+          </div>
+          <div className="p-5 bg-matte-black-light rounded-2xl border border-slate-800">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Boundary Integrity</p>
+            <p className={`text-2xl font-bold mt-2 ${governanceReport?.healthy ? 'text-emerald-400' : 'text-red-400'}`}>
+              {governanceReport ? (governanceReport.healthy ? 'Healthy' : 'Attention') : '-'}
+            </p>
+            {governanceReport && (
+              <p className="text-xs text-slate-500 mt-1">
+                {governanceReport.findings.length} governance finding(s)
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+function buildCognitiveInput(
+  firmId: string,
+  metricsData: DashboardMetrics,
+  gstSummaryData: GSTDashboardSummary,
+): EnterpriseCognitiveInput {
+  return {
+    tenantId: firmId,
+    objectives: [
+      {
+        id: 'sla-stability',
+        name: 'SLA Stabilization',
+        domain: 'operations',
+        targetValue: 95,
+        currentValue: Math.max(0, 100 - Math.min(metricsData.overdueTasks * 4, 100)),
+        weight: 0.35,
+        status: metricsData.overdueTasks > 8 ? 'off-track' : metricsData.overdueTasks > 3 ? 'at-risk' : 'on-track',
+      },
+      {
+        id: 'gst-workload-harmony',
+        name: 'GST Workload Distribution',
+        domain: 'gst-intelligence',
+        targetValue: 90,
+        currentValue: Math.max(0, 100 - Math.min(gstSummaryData.pendingFilings + gstSummaryData.overdueFilings, 100)),
+        weight: 0.3,
+        status:
+          gstSummaryData.overdueFilings > 10
+            ? 'off-track'
+            : gstSummaryData.overdueFilings > 4
+              ? 'at-risk'
+              : 'on-track',
+      },
+      {
+        id: 'escalation-reduction',
+        name: 'Escalation Reduction',
+        domain: 'coordination',
+        targetValue: 92,
+        currentValue: Math.max(0, 100 - Math.min(metricsData.escalationAlerts * 10, 100)),
+        weight: 0.2,
+        status: metricsData.escalationAlerts > 4 ? 'off-track' : metricsData.escalationAlerts > 1 ? 'at-risk' : 'on-track',
+      },
+      {
+        id: 'governance-consistency',
+        name: 'Governance Consistency',
+        domain: 'governance',
+        targetValue: 98,
+        currentValue: metricsData.integrityHealthScore,
+        weight: 0.15,
+        status: metricsData.integrityHealthScore < 75 ? 'off-track' : metricsData.integrityHealthScore < 90 ? 'at-risk' : 'on-track',
+      },
+    ],
+    workloadSignals: [
+      {
+        id: 'gst-reconciliation-friction',
+        type: 'bottleneck',
+        domain: 'gst-intelligence',
+        description: 'Peak filing window is concentrating reconciliation queues.',
+        impactScore: Math.min(100, gstSummaryData.pendingFilings * 3 + gstSummaryData.overdueFilings * 5),
+        recurrenceScore: Math.min(100, gstSummaryData.overdueFilings * 6),
+      },
+      {
+        id: 'escalation-pressure',
+        type: 'coordination-friction',
+        domain: 'operations-center',
+        description: 'Escalation alerts indicate workflow handoff stress between pods.',
+        impactScore: Math.min(100, metricsData.escalationAlerts * 14),
+        recurrenceScore: Math.min(100, metricsData.reassignmentEvents * 10),
+      },
+    ],
+    intentSignals: [
+      {
+        id: 'intent-sla',
+        workflow: 'SLA-critical task routing',
+        inferredIntent: 'Protect due-date commitments for high-risk clients',
+        confidence: metricsData.overdueTasks > 8 ? 0.58 : 0.78,
+        objectiveLinks: ['sla-stability', 'escalation-reduction'],
+      },
+      {
+        id: 'intent-gst',
+        workflow: 'GST reconciliation triage',
+        inferredIntent: 'Stabilize compliance backlog without adding escalation load',
+        confidence: gstSummaryData.overdueFilings > 8 ? 0.61 : 0.81,
+        objectiveLinks: gstSummaryData.overdueFilings > 12 ? [] : ['gst-workload-harmony'],
+      },
+    ],
+    simulationScenarios: [
+      {
+        id: 'reconciliation-pod-reshape',
+        name: 'Temporary reconciliation pod restructuring',
+        scope: 'GST peak filing operations',
+        expectedEfficiencyDelta: 11.5,
+        expectedSlaDelta: 8.2,
+        investmentLevel: 'medium',
+      },
+      {
+        id: 'cross-team-escalation-buffer',
+        name: 'Cross-team escalation buffer lane',
+        scope: 'Operations center handoff load',
+        expectedEfficiencyDelta: 7.1,
+        expectedSlaDelta: 6.4,
+        investmentLevel: 'low',
+      },
+    ],
+  };
+}

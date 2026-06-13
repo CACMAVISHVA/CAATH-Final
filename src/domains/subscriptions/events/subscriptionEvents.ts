@@ -1,0 +1,5 @@
+export type SubscriptionEvent =
+  | 'SUBSCRIPTION_PLAN_CHANGED'
+  | 'USAGE_THRESHOLD_REACHED'
+  | 'FEATURE_ACCESS_DENIED';
+
