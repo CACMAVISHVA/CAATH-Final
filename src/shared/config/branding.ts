@@ -1,0 +1,18 @@
+export const BRANDING = {
+  appName: 'CAATH PMS',
+  browserTitle: 'CAATH – Secure Practice OS',
+  description: 'Secure Practice OS for accounting, taxation, and legal professionals.',
+  themeColor: '#0B1020',
+  brandAccent: '#c8a85a',
+  loginLogo: '/branding/login-logo.png',
+  dashboardLogo: '/branding/login-logo.png',
+  favicon: '/branding/favicon.ico',
+  favicon16: '/branding/favicon-16x16.png',
+  favicon32: '/branding/favicon-32x32.png',
+  favicon48: '/branding/favicon-48x48.png',
+  appleTouchIcon: '/branding/apple-touch-icon.png',
+  androidChrome192: '/branding/android-chrome-192x192.png',
+  androidChrome512: '/branding/android-chrome-512x512.png',
+  manifestIcon: '/branding/manifest-icon.png',
+  socialPreviewImage: '/branding/og-image.png',
+} as const;

@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { cn } from '../lib/utils';
+import { BRANDING } from '../shared/config/branding';
 
 interface LogoProps {
   className?: string;
@@ -24,7 +25,7 @@ export const Logo: React.FC<LogoProps> = ({ className, size = 'md' }) => {
       {/* Fallback/Background for the logo */}
       <div className="absolute inset-0 gold-gradient rounded-xl opacity-20 blur-sm" />
       <img 
-        src="/logo.png" 
+        src={BRANDING.loginLogo}
         alt="CAATH Logo" 
         className="relative z-10 w-full h-full object-contain"
         referrerPolicy="no-referrer"
