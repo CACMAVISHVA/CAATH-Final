@@ -99,6 +99,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'approvals', label: 'Approvals', icon: FileCheck2 },
       { id: 'governance', label: 'Governance', icon: Scale },
       { id: 'billing', label: 'Billing & Revenue', icon: CreditCard },
+      { id: 'user-management', label: 'User Management', icon: UserCog },
+      { id: 'workspace-settings', label: 'Workspace Settings', icon: Settings },
+      { id: 'firm-profile', label: 'Firm Profile', icon: Building2 },
     ];
 
     const items = [...baseItems];
@@ -112,14 +115,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     let visibleItems = items;
     if (user?.role === 'Admin') {
-      visibleItems = items.filter(item => !['billing', 'staff', 'security'].includes(item.id)).concat([
+      visibleItems = items.filter(item => !['billing', 'staff', 'security', 'workspace-settings', 'firm-profile'].includes(item.id)).concat([
         { id: 'auditlog', label: 'Audit Log', icon: HistoryIcon },
         { id: 'qa', label: 'Operational QA', icon: Bug },
       ]);
     }
 
     if (user?.role === 'Staff') {
-      visibleItems = items.filter(item => !['billing', 'staff', 'auditlog', 'security', 'approvals'].includes(item.id));
+      visibleItems = items.filter(item => !['billing', 'user-management', 'workspace-settings', 'firm-profile', 'staff', 'auditlog', 'security', 'approvals'].includes(item.id));
     }
 
     const byId = new Map(visibleItems.map((item) => [item.id, item]));
@@ -130,7 +133,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { label: 'Work', items: pick(['tasks', 'clients', 'documents']) },
       { label: 'Compliance', items: pick(['gst', 'compliance', 'notifications', 'notices']) },
       { label: 'Control', items: pick(['approvals', 'governance']) },
-      { label: 'Administration', items: pick(['billing', 'staff', 'auditlog', 'security', 'qa']) },
+      { label: 'Workspace Administration', items: pick(['user-management', 'billing', 'workspace-settings', 'firm-profile']) },
+      { label: 'Administration', items: pick(['staff', 'auditlog', 'security', 'qa']) },
     ].filter((section) => section.items.length > 0);
   };
 

@@ -8,10 +8,10 @@ import {
   Search,
   Filter,
   Plus,
-  MoreVertical,
   Download,
   Trash2,
   FileText,
+  CreditCard,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { AnalyticsLoader } from './loaders/AnalyticsLoader';
@@ -172,8 +172,8 @@ export const BillingRevenue: React.FC = () => {
     <div className="p-6 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold gold-text-gradient">Billing & Revenue</h2>
-          <p className="text-sm text-slate-500">Manage client invoices, payments, and track practice profitability.</p>
+          <h2 className="text-2xl font-bold gold-text-gradient">Subscription & Billing</h2>
+          <p className="text-sm text-slate-500">Manage workspace subscription, payments, invoices, and practice revenue.</p>
         </div>
         <button
           onClick={() => setShowInvoiceModal(true)}
@@ -183,6 +183,54 @@ export const BillingRevenue: React.FC = () => {
           Create Invoice
         </button>
       </div>
+
+      {user?.firm && (
+        <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="border border-slate-800 bg-matte-black-light p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Current Plan</p>
+                <h3 className="mt-2 text-xl font-bold text-white">{user.firm.subscriptionPlan}</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Renewal: {user.firm.subscriptionExpiryDate ? new Date(user.firm.subscriptionExpiryDate).toLocaleDateString() : 'Pending activation'}
+                </p>
+              </div>
+              <span className={cn(
+                'px-3 py-1 text-[10px] font-bold uppercase',
+                user.firm.subscriptionStatus === 'Active' || user.firm.subscriptionStatus === 'Trial'
+                  ? 'bg-emerald-500/10 text-emerald-300'
+                  : 'bg-amber-500/10 text-amber-300',
+              )}>
+                {user.firm.subscriptionStatus}
+              </span>
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="border border-slate-800 bg-matte-black p-3">
+                <p className="text-[10px] uppercase text-slate-500">Admins</p>
+                <p className="text-lg font-bold text-white">{user.firm.maxAdmins}</p>
+              </div>
+              <div className="border border-slate-800 bg-matte-black p-3">
+                <p className="text-[10px] uppercase text-slate-500">Staff</p>
+                <p className="text-lg font-bold text-white">{user.firm.maxStaff}</p>
+              </div>
+              <div className="border border-slate-800 bg-matte-black p-3">
+                <p className="text-[10px] uppercase text-slate-500">Clients</p>
+                <p className="text-lg font-bold text-white">{user.firm.maxClients}</p>
+              </div>
+            </div>
+          </div>
+          <div className="border border-gold/20 bg-gold/10 p-5">
+            <div className="flex items-center gap-3">
+              <CreditCard className="h-5 w-5 text-gold" />
+              <h3 className="font-bold text-white">Activate Subscription</h3>
+            </div>
+            <p className="mt-3 text-sm text-slate-300">Payment integration is ready for Razorpay, Stripe, or UPI gateway activation.</p>
+            <button className="mt-5 w-full bg-gold px-4 py-2 text-sm font-bold text-matte-black">
+              Activate Subscription
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Interactive Analytics Cards - Real Data Driven */}
       <Suspense fallback={<AnalyticsLoader />}>

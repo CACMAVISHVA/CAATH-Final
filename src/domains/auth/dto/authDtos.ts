@@ -1,4 +1,4 @@
-import { User, UserRole } from '../../../types';
+import { User, UserRole, WorkspaceSubscriptionPlan, SubscriptionStatus } from '../../../types';
 
 export type LoginRequestDto = {
   email: string;
@@ -13,4 +13,20 @@ export type CreateProfileDto = {
   name: string;
   role: UserRole;
   firmId: string | null;
+  isWorkspaceOwner?: boolean;
+};
+
+export type WorkspaceRegistrationDto = {
+  firmName: string;
+  fullName: string;
+  email: string;
+  mobile: string;
+  password: string;
+  gstin?: string;
+  subscriptionPlan: WorkspaceSubscriptionPlan;
+};
+
+export type WorkspaceSubscriptionDto = {
+  plan: WorkspaceSubscriptionPlan;
+  status: SubscriptionStatus;
 };

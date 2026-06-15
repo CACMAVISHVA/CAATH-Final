@@ -14,6 +14,8 @@ export type DocumentStatus = 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED
 export type DocumentWorkflowStage = 'DRAFT' | 'STAFF_PROCESSED' | 'ADMIN_REVIEW' | 'SUPERADMIN_APPROVAL' | 'CLIENT_VISIBLE' | 'ARCHIVED' | 'REJECTED' | 'REWORK';
 
 export type UserRole = 'GodAdmin' | 'SuperAdmin' | 'Admin' | 'Staff' | 'Client';
+export type SubscriptionStatus = 'Trial' | 'Active' | 'Pending Payment' | 'Expired' | 'Suspended' | 'Cancelled';
+export type WorkspaceSubscriptionPlan = 'Starter' | 'Professional' | 'Enterprise';
 
 export type ApprovalStatus = 'DRAFT' | 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REWORK' | 'CLIENT_VISIBLE' | 'ARCHIVED';
 export type ApprovalWorkflowStage = 'DRAFT' | 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REWORK' | 'CLIENT_VISIBLE' | 'ARCHIVED';
@@ -26,6 +28,8 @@ export interface User {
   role: UserRole;
   status?: string;
   firmId?: string;
+  isWorkspaceOwner?: boolean;
+  firm?: WorkspaceFirm;
   createdAt?: string;
   assignedClients?: string[];
   services?: ('GST' | 'Income Tax' | 'MCA')[];
@@ -35,6 +39,21 @@ export interface User {
     avgTurnaroundDays: number;
     clientSatisfaction: number;
   };
+}
+
+export interface WorkspaceFirm {
+  id: string;
+  name: string;
+  workspaceCode?: string;
+  subscriptionPlan: WorkspaceSubscriptionPlan;
+  subscriptionStatus: SubscriptionStatus;
+  subscriptionStartDate?: string;
+  subscriptionExpiryDate?: string;
+  maxAdmins: number;
+  maxStaff: number;
+  maxClients: number;
+  createdByAuthId?: string;
+  createdAt?: string;
 }
 
 export interface Firm {

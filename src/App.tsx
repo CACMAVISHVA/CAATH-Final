@@ -32,7 +32,7 @@ import { getUserFullName, getUserDisplayRole } from './lib/userHelpers';
 import { formatWorkspaceAlias } from './lib/tenantIdentity';
 import { ROLE_ACCESS, ROLE_HOME, canAccessTab } from './lib/permissions';
 import { supabase } from './lib/supabase';
-import { createAccountWithRole, SELF_SERVICE_ONBOARDING_ROLE } from './services/accountOnboardingService';
+import { createWorkspaceOwnerAccount } from './services/accountOnboardingService';
 import { ProtectedRoute } from './routes/ProtectedRoute';
 import { DashboardLoader } from './components/loaders/DashboardLoader';
 import { PageLoader } from './components/loaders/PageLoader';
@@ -63,13 +63,12 @@ const OperationalQaInspector = lazy(() => import('./components/OperationalQaInsp
 const PayrollWorkspace = lazy(() => import('./components/PayrollWorkspace'));
 
 export default function App() {
-  const { user, session, isLoading, error, login, logout } = useAuth();
+  const { user, session, isLoading, error, login, logout, refreshUser, subscriptionLocked } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isSubscribed, setIsSubscribed] = useState(true);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isOperationsDrawerOpen, setIsOperationsDrawerOpen] = useState(false);
   const [workspacePrefs, setWorkspacePrefs] = useState<WorkspacePreferences>({
@@ -266,11 +265,11 @@ export default function App() {
 
       const { data } = await supabase
         .from('firms')
-        .select('name')
+        .select('*')
         .eq('id', user.firmId)
         .maybeSingle();
 
-      setFirmName(data?.name || '');
+      setFirmName(data?.firm_name || data?.name || '');
     };
 
     loadFirmIdentity();
@@ -319,6 +318,11 @@ export default function App() {
   const renderContent = () => {
     if (!user || !canAccessTab(user, activeTab)) {
       return <ProtectedRoute roles={[]}><Dashboard /></ProtectedRoute>;
+    }
+
+    const subscriptionAllowedTabs = ['dashboard', 'billing', 'workspace-settings', 'firm-profile'];
+    if (subscriptionLocked && !subscriptionAllowedTabs.includes(activeTab)) {
+      return <LockedModuleOverlay onActivate={() => setActiveTab('billing')} />;
     }
 
     if (user.role === 'GodAdmin') {
@@ -488,8 +492,13 @@ export default function App() {
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<PayrollWorkspace />)}</ProtectedRoute>;
       case 'billing':
         return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<BillingRevenue />)}</ProtectedRoute>;
+      case 'user-management':
       case 'staff':
-        return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<StaffManagement />)}</ProtectedRoute>;
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<StaffManagement />)}</ProtectedRoute>;
+      case 'workspace-settings':
+        return <ProtectedRoute roles={['SuperAdmin']}>{<WorkspaceSettingsPanel user={user} />}</ProtectedRoute>;
+      case 'firm-profile':
+        return <ProtectedRoute roles={['SuperAdmin']}>{<FirmProfilePanel user={user} />}</ProtectedRoute>;
       case 'auditlog':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<AuditCenter />)}</ProtectedRoute>;
       case 'security':
@@ -518,30 +527,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginScreen onLogin={handleLogin} error={error} onSignupSuccess={() => {}} />;
-  }
-
-  if (!isSubscribed && user.role === 'SuperAdmin') {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-matte-black text-white p-8">
-        <div className="w-full max-w-md p-6 bg-matte-black-light border border-slate-800 text-center space-y-5 shadow-2xl">
-          <div className="w-16 h-16 bg-red-500/10 flex items-center justify-center text-red-500 mx-auto">
-            <AlertTriangle className="w-8 h-8" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold">Subscription Expired</h2>
-            <p className="text-slate-500 text-sm">Your monthly subscription has ended. Please renew to continue accessing your practice data.</p>
-          </div>
-          <button
-            onClick={() => setIsSubscribed(true)}
-            className="w-full py-3 bg-gold text-matte-black font-bold hover:bg-gold-light transition-all flex items-center justify-center gap-3"
-          >
-            <CreditCard className="w-5 h-5" />
-            Renew Subscription
-          </button>
-        </div>
-      </div>
-    );
+    return <LoginScreen onLogin={handleLogin} error={error} onSignupSuccess={refreshUser} />;
   }
 
   return (
@@ -586,6 +572,17 @@ export default function App() {
             )}
           </div>
         </header>
+        {subscriptionLocked && (
+          <div className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-3 text-sm text-amber-100 flex items-center justify-between gap-4">
+            <span>Your CAATH subscription is inactive. Please activate your subscription to continue using all features.</span>
+            <button
+              onClick={() => setActiveTab('billing')}
+              className="shrink-0 bg-gold px-3 py-1.5 text-xs font-bold text-matte-black"
+            >
+              Activate Subscription
+            </button>
+          </div>
+        )}
         <section className="flex-1 overflow-hidden">
           {renderContent()}
         </section>
@@ -640,11 +637,80 @@ export default function App() {
   );
 }
 
+const LockedModuleOverlay: React.FC<{ onActivate: () => void }> = ({ onActivate }) => (
+  <div className="h-full bg-matte-black p-8 text-slate-300">
+    <div className="flex h-full items-center justify-center border border-amber-500/20 bg-matte-black-light">
+      <div className="max-w-lg text-center">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center bg-amber-500/10 text-amber-300">
+          <AlertTriangle className="h-7 w-7" />
+        </div>
+        <h2 className="text-2xl font-bold text-white">Operational Module Locked</h2>
+        <p className="mt-3 text-sm text-slate-400">
+          Your CAATH subscription is inactive. Please activate your subscription to continue using all features.
+        </p>
+        <button
+          onClick={onActivate}
+          className="mt-6 inline-flex items-center gap-2 bg-gold px-5 py-3 text-sm font-bold text-matte-black"
+        >
+          <CreditCard className="h-4 w-4" />
+          Activate Subscription
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const WorkspaceSettingsPanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth>['user']> }> = ({ user }) => (
+  <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
+    <h2 className="text-2xl font-bold gold-text-gradient">Workspace Settings</h2>
+    <p className="mt-1 text-sm text-slate-500">Manage ownership, subscription access, and workspace defaults.</p>
+    <div className="mt-6 grid gap-4 md:grid-cols-3">
+      <div className="border border-slate-800 bg-matte-black-light p-5">
+        <p className="text-xs uppercase text-slate-500">Owner</p>
+        <p className="mt-2 text-lg font-bold text-white">{user.name}</p>
+        <p className="text-xs text-slate-500">{user.email}</p>
+      </div>
+      <div className="border border-slate-800 bg-matte-black-light p-5">
+        <p className="text-xs uppercase text-slate-500">Workspace Code</p>
+        <p className="mt-2 text-lg font-bold text-white">{user.firm?.workspaceCode || user.firmId}</p>
+      </div>
+      <div className="border border-slate-800 bg-matte-black-light p-5">
+        <p className="text-xs uppercase text-slate-500">Subscription</p>
+        <p className="mt-2 text-lg font-bold text-white">{user.firm?.subscriptionStatus || 'Pending Payment'}</p>
+      </div>
+    </div>
+  </div>
+);
+
+const FirmProfilePanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth>['user']> }> = ({ user }) => (
+  <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
+    <h2 className="text-2xl font-bold gold-text-gradient">Firm Profile</h2>
+    <p className="mt-1 text-sm text-slate-500">Core tenant profile and plan capacity.</p>
+    <div className="mt-6 border border-slate-800 bg-matte-black-light p-6">
+      <div className="grid gap-4 md:grid-cols-2">
+        <ProfileField label="Firm Name" value={user.firm?.name || 'Workspace'} />
+        <ProfileField label="Plan" value={user.firm?.subscriptionPlan || 'Starter'} />
+        <ProfileField label="Max Admins" value={String(user.firm?.maxAdmins ?? 1)} />
+        <ProfileField label="Max Staff" value={String(user.firm?.maxStaff ?? 3)} />
+        <ProfileField label="Max Clients" value={String(user.firm?.maxClients ?? 25)} />
+        <ProfileField label="Renewal Date" value={user.firm?.subscriptionExpiryDate ? new Date(user.firm.subscriptionExpiryDate).toLocaleDateString() : 'Not scheduled'} />
+      </div>
+    </div>
+  </div>
+);
+
+const ProfileField: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div>
+    <p className="text-xs uppercase tracking-wider text-slate-500">{label}</p>
+    <p className="mt-1 text-sm font-bold text-white">{value}</p>
+  </div>
+);
+
 const LoginScreen: React.FC<{
   onLogin: (event: React.FormEvent<HTMLFormElement>) => void;
   error: string | null;
   onSignupSuccess: () => void;
-}> = ({ onLogin, error }) => {
+}> = ({ onLogin, error, onSignupSuccess }) => {
   const initialMode = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -673,7 +739,10 @@ const LoginScreen: React.FC<{
     const email = String(formData.get('email') ?? '').trim();
     const password = String(formData.get('password') ?? '').trim();
     const fullName = String(formData.get('fullName') ?? '').trim();
-    const firmId = String(formData.get('firmId') ?? '').trim();
+    const firmName = String(formData.get('firmName') ?? '').trim();
+    const mobile = String(formData.get('mobile') ?? '').trim();
+    const gstin = String(formData.get('gstin') ?? '').trim();
+    const subscriptionPlan = String(formData.get('subscriptionPlan') ?? 'Starter') as 'Starter' | 'Professional' | 'Enterprise';
 
     if (isForgotPassword) {
       try {
@@ -706,15 +775,16 @@ const LoginScreen: React.FC<{
 
     if (isCreateAccount) {
       try {
-        if (!firmId) throw new Error('A valid firm workspace ID is required to create this account.');
-        await createAccountWithRole({
+        await createWorkspaceOwnerAccount({
+          firmName,
           email,
           password,
           fullName: fullName || email.split('@')[0] || 'New User',
-          role: SELF_SERVICE_ONBOARDING_ROLE,
-          firmId,
-          actor: null,
+          mobile,
+          gstin,
+          subscriptionPlan,
         });
+        await onSignupSuccess();
       } catch (signupError) {
         setLocalError(normalizeAuthError(signupError).userMessage);
         setIsLoading(false);
@@ -722,8 +792,7 @@ const LoginScreen: React.FC<{
       }
 
       setIsLoading(false);
-      setNotice('Account created. Please check your email to verify, then sign in.');
-      setAuthMode('signin');
+      setNotice('Workspace created. Loading your secure dashboard...');
     } else {
       try {
         await onLogin(event);
@@ -752,10 +821,10 @@ const LoginScreen: React.FC<{
 
       <div className="bg-matte-black-light border border-slate-800 p-6">
         <h2 className="text-xl font-bold text-white mb-1">
-          {isCreateAccount ? 'Create Account' : isForgotPassword ? 'Reset Password' : isResetPassword ? 'Set New Password' : 'Sign In'}
+          {isCreateAccount ? 'Create Your CAATH Workspace' : isForgotPassword ? 'Reset Password' : isResetPassword ? 'Set New Password' : 'Sign In'}
         </h2>
         <p className="text-sm text-slate-500 mb-6">
-          {isCreateAccount ? 'Client self-service onboarding' : isForgotPassword ? 'Request a secure account recovery link' : isResetPassword ? 'Choose a new password for your account' : 'Secure access to your practice workspace'}
+          {isCreateAccount ? 'Launch your secure digital practice workspace in minutes.' : isForgotPassword ? 'Request a secure account recovery link' : isResetPassword ? 'Choose a new password for your account' : 'Secure access to your practice workspace'}
         </p>
 
         {(error || localError) && (
@@ -774,12 +843,28 @@ const LoginScreen: React.FC<{
             <div>
               {isCreateAccount && (
                 <>
+                  <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Firm Name</label>
+                  <input
+                    name="firmName"
+                    type="text"
+                    required
+                    placeholder="Your firm name"
+                    className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600 mb-4"
+                  />
                   <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Full Name</label>
                   <input
                     name="fullName"
                     type="text"
                     required
                     placeholder="Your full name"
+                    className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600 mb-4"
+                  />
+                  <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Mobile Number</label>
+                  <input
+                    name="mobile"
+                    type="tel"
+                    required
+                    placeholder="+91 9876543210"
                     className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600 mb-4"
                   />
                 </>
@@ -796,13 +881,13 @@ const LoginScreen: React.FC<{
           )}
           {!isForgotPassword && isCreateAccount && (
             <div>
-              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Profile Type</label>
+              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">GSTIN (Optional)</label>
               <input
-                value={SELF_SERVICE_ONBOARDING_ROLE}
-                readOnly
-                className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-slate-300 outline-none"
+                name="gstin"
+                type="text"
+                placeholder="22AAAAA0000A1Z5"
+                className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
               />
-              <p className="text-[11px] text-slate-500 mt-1">Admin, SuperAdmin, and Staff accounts are created by approved provisioning workflows.</p>
             </div>
           )}
           {!isForgotPassword && (
@@ -819,21 +904,21 @@ const LoginScreen: React.FC<{
             </div>
           )}
           {isCreateAccount && (
-            <>
-              <div>
-                <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Firm ID (Client onboarding)</label>
-                <input
-                  name="firmId"
-                  type="text"
-                  required
-                  placeholder="Firm workspace ID from your invitation"
-                  className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
-                />
-              </div>
-            </>
+            <div>
+              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Subscription Plan</label>
+              <select
+                name="subscriptionPlan"
+                className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none"
+                defaultValue="Starter"
+              >
+                <option value="Starter">Starter</option>
+                <option value="Professional">Professional</option>
+                <option value="Enterprise">Enterprise</option>
+              </select>
+            </div>
           )}
           <button type="submit" disabled={isLoading} className="w-full py-2.5 bg-gold text-matte-black font-bold hover:bg-gold-light disabled:opacity-50 transition-colors">
-            {isLoading ? 'Processing...' : isCreateAccount ? 'Create Account' : isForgotPassword ? 'Send Reset Link' : isResetPassword ? 'Update Password' : 'Sign In'}
+            {isLoading ? 'Processing...' : isCreateAccount ? 'Create Workspace' : isForgotPassword ? 'Send Reset Link' : isResetPassword ? 'Update Password' : 'Sign In'}
           </button>
         </form>
 
@@ -844,7 +929,7 @@ const LoginScreen: React.FC<{
               onClick={() => { setAuthMode(isCreateAccount ? 'signin' : 'signup'); setLocalError(null); setNotice(null); }}
               className="w-full py-2 text-sm text-slate-400 hover:text-gold transition-colors"
             >
-              {isCreateAccount ? 'Already have an account? Sign In' : 'Create client account'}
+              {isCreateAccount ? 'Already have an account? Sign In' : 'Create your CAATH workspace'}
             </button>
           )}
           {!isCreateAccount && !isForgotPassword && !isResetPassword && (

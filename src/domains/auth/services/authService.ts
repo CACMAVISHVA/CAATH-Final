@@ -7,9 +7,10 @@ import { authProfileRepository } from '../repositories/SupabaseAuthProfileReposi
 
 const authRepository = new SupabaseAuthRepository();
 
-const resolveSafeRequestedRole = (role: unknown): UserRole => {
+const resolveSafeRequestedRole = (role: unknown): UserRole | null => {
   if (role === 'Client') return 'Client';
-  return 'Staff';
+  if (role === 'SuperAdmin') return 'SuperAdmin';
+  return null;
 };
 
 export const authService = {
@@ -78,12 +79,19 @@ export const authService = {
 
     const metadata = session.user.user_metadata || {};
     const role = resolveSafeRequestedRole(metadata.requested_role);
+    if (!role) {
+      throw new Error('Your CAATH user profile has not been provisioned. Please contact your workspace administrator.');
+    }
     const name = typeof metadata.full_name === 'string' && metadata.full_name.trim().length > 0
       ? metadata.full_name.trim()
       : (session.user.email?.split('@')[0] || 'New User');
-    const firmId = role === 'Client' && typeof metadata.requested_firm_id === 'string' && metadata.requested_firm_id.trim().length > 0
+    const firmId = typeof metadata.requested_firm_id === 'string' && metadata.requested_firm_id.trim().length > 0
       ? metadata.requested_firm_id.trim()
       : null;
+
+    if (!firmId) {
+      throw new Error('Your workspace profile is incomplete. Please contact support.');
+    }
 
     return authProfileRepository.createProfile({
       authId: session.user.id,
@@ -91,6 +99,7 @@ export const authService = {
       name,
       role,
       firmId,
+      isWorkspaceOwner: role === 'SuperAdmin',
     });
   },
 };

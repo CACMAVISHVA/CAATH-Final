@@ -15,6 +15,7 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   permissions: PermissionSet;
+  subscriptionLocked: boolean;
   isLoading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
@@ -32,6 +33,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const subscriptionLocked = useMemo(() => {
+    if (!user || user.role === 'GodAdmin') return false;
+    const status = user.firm?.subscriptionStatus;
+    return Boolean(status && status !== 'Active' && status !== 'Trial');
+  }, [user]);
 
   const loadUserProfile = useCallback(async (activeSession: Session | null) => {
     if (!activeSession) {
@@ -183,13 +189,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     session,
     user,
     permissions,
+    subscriptionLocked,
     isLoading,
     error,
     login,
     logout,
     refreshUser,
     hasRole,
-  }), [session, user, permissions, isLoading, error, login, logout, refreshUser, hasRole]);
+  }), [session, user, permissions, subscriptionLocked, isLoading, error, login, logout, refreshUser, hasRole]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

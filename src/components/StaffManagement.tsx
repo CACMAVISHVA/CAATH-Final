@@ -21,6 +21,9 @@ import {
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { User, Client } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
+import { createAccountWithRole } from '../services/accountOnboardingService';
 
 const MOCK_STAFF: User[] = [
   { 
@@ -72,6 +75,7 @@ interface NewStaffForm {
 }
 
 export const StaffManagement: React.FC = () => {
+  const { user } = useAuth();
   const [staff, setStaff] = useState<User[]>(MOCK_STAFF);
   const [selectedStaff, setSelectedStaff] = useState<User | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -85,6 +89,33 @@ export const StaffManagement: React.FC = () => {
     joiningDate: new Date().toISOString().split('T')[0],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const loadUsers = async () => {
+      if (!user?.firmId) return;
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, auth_id, firm_id, name, email, role, status, created_at')
+        .eq('firm_id', user.firmId)
+        .neq('role', 'GodAdmin')
+        .order('created_at', { ascending: false });
+      if (error) return;
+      setStaff((data || []).map((row) => ({
+        id: row.id,
+        authId: row.auth_id,
+        firmId: row.firm_id,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+        status: row.status,
+        createdAt: row.created_at,
+        assignedClients: [],
+        performance: { tasksCompleted: 0, documentsDelivered: 0, avgTurnaroundDays: 0, clientSatisfaction: 0 },
+      })));
+    };
+    loadUsers();
+  }, [user?.firmId]);
 
   const removeStaff = (id: string) => {
     setStaff(staff.filter(s => s.id !== id));
@@ -97,9 +128,16 @@ export const StaffManagement: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    setFormError(null);
 
-    // Simulate API call - in production, this would call Supabase
-    setTimeout(() => {
+    try {
+      await createAccountWithRole({
+        email: newStaff.email,
+        password: `CAATH@${new Date().getFullYear()}!`,
+        fullName: newStaff.name,
+        role: newStaff.role as User['role'],
+        actor: user,
+      });
       const newStaffMember: User = {
         id: `s${Date.now()}`,
         name: newStaff.name,
@@ -122,8 +160,11 @@ export const StaffManagement: React.FC = () => {
         designation: '',
         joiningDate: new Date().toISOString().split('T')[0],
       });
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Unable to create user.');
+    } finally {
       setIsSubmitting(false);
-    }, 500);
+    }
   };
 
   return (
@@ -131,7 +172,7 @@ export const StaffManagement: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold gold-text-gradient">Staff Management</h2>
-          <p className="text-sm text-slate-500">Manage your team, delegate clients, and track performance.</p>
+          <p className="text-sm text-slate-500">Create users, assign roles, and manage workspace access.</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
@@ -299,6 +340,11 @@ export const StaffManagement: React.FC = () => {
             </div>
 
             <div className="p-4 space-y-4">
+              {formError && (
+                <div className="border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+                  {formError}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs text-slate-500 uppercase font-bold mb-1.5">Full Name *</label>
@@ -340,10 +386,11 @@ export const StaffManagement: React.FC = () => {
                     onChange={e => setNewStaff({ ...newStaff, role: e.target.value })}
                     className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
                   >
+                    {user?.role === 'SuperAdmin' && <option value="Admin">Admin</option>}
                     <option value="Staff">Staff</option>
-                    <option value="Admin">Admin</option>
-                    <option value="SuperAdmin">SuperAdmin</option>
+                    <option value="Client">Client</option>
                   </select>
+                  <p className="mt-1 text-[11px] text-slate-500">SuperAdmin ownership is only created through workspace registration or GodAdmin provisioning.</p>
                 </div>
               </div>
 
