@@ -386,11 +386,12 @@ export const StaffManagement: React.FC = () => {
                     onChange={e => setNewStaff({ ...newStaff, role: e.target.value })}
                     className="w-full px-3 py-2 bg-matte-black border border-slate-800 text-sm text-white"
                   >
+                    {user?.role === 'SuperAdmin' && <option value="SuperAdmin">SuperAdmin</option>}
                     {user?.role === 'SuperAdmin' && <option value="Admin">Admin</option>}
                     <option value="Staff">Staff</option>
                     <option value="Client">Client</option>
                   </select>
-                  <p className="mt-1 text-[11px] text-slate-500">SuperAdmin ownership is only created through workspace registration or GodAdmin provisioning.</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Workspace ownership remains with the original registered owner unless transferred by a governed backend workflow.</p>
                 </div>
               </div>
 

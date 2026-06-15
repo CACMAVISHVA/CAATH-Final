@@ -18,7 +18,9 @@ type AuthContextValue = {
   subscriptionLocked: boolean;
   isLoading: boolean;
   error: string | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<{ requiresOtp: boolean; email?: string }>;
+  verifyEmailOtp: (email: string, otp: string) => Promise<void>;
+  resendEmailOtp: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   hasRole: (roles: UserRole | UserRole[]) => boolean;
@@ -153,12 +155,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.clearInterval(interval);
   }, [session, user?.id]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, rememberMe?: boolean) => {
     setError(null);
     try {
-      await authService.login({ email, password });
+      return await authService.login({ email, password, rememberMe });
     } catch (loginError) {
       const safeError = normalizeAuthError(loginError);
+      setError(safeError.userMessage);
+      throw new Error(safeError.userMessage);
+    }
+  }, []);
+
+  const verifyEmailOtp = useCallback(async (email: string, otp: string) => {
+    setError(null);
+    try {
+      await authService.verifyEmailOtp(email, otp);
+    } catch (otpError) {
+      const safeError = normalizeAuthError(otpError);
+      setError(safeError.userMessage);
+      throw new Error(safeError.userMessage);
+    }
+  }, []);
+
+  const resendEmailOtp = useCallback(async (email: string) => {
+    setError(null);
+    try {
+      await authService.resendEmailOtp(email);
+    } catch (resendError) {
+      const safeError = normalizeAuthError(resendError);
       setError(safeError.userMessage);
       throw new Error(safeError.userMessage);
     }
@@ -193,10 +217,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     error,
     login,
+    verifyEmailOtp,
+    resendEmailOtp,
     logout,
     refreshUser,
     hasRole,
-  }), [session, user, permissions, subscriptionLocked, isLoading, error, login, logout, refreshUser, hasRole]);
+  }), [session, user, permissions, subscriptionLocked, isLoading, error, login, verifyEmailOtp, resendEmailOtp, logout, refreshUser, hasRole]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

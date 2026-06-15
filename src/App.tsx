@@ -6,7 +6,7 @@
 import React, { lazy, Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, CreditCard } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 const ClientMaster = lazy(() => import('./components/ClientMaster').then((module) => ({ default: module.ClientMaster })));
@@ -46,6 +46,7 @@ import {
   loadWorkspacePreferences,
   saveWorkspacePreferences,
 } from './services/workspacePreferencesService';
+import { authSecurityService, AuthSecuritySettings } from './services/authSecurityService';
 
 const ComplianceTracker = lazy(() => import('./components/ComplianceTracker'));
 const GSTIntelligenceCenter = lazy(() => import('./components/GSTIntelligenceCenter'));
@@ -58,12 +59,11 @@ const GodAdminDashboard = lazy(() => import('./components/GodAdminDashboard').th
 const ApprovalEngine = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.ApprovalEngine })));
 const AutomationCenter = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.AutomationCenter })));
 const AiFoundation = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.AiFoundation })));
-const SecurityCenter = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.SecurityCenter })));
 const OperationalQaInspector = lazy(() => import('./components/OperationalQaInspector'));
 const PayrollWorkspace = lazy(() => import('./components/PayrollWorkspace'));
 
 export default function App() {
-  const { user, session, isLoading, error, login, logout, refreshUser, subscriptionLocked } = useAuth();
+  const { user, session, isLoading, error, login, verifyEmailOtp, resendEmailOtp, logout, refreshUser, subscriptionLocked } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
@@ -312,7 +312,8 @@ export default function App() {
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get('email') ?? '');
     const password = String(formData.get('password') ?? '');
-    await login(email, password);
+    const rememberMe = formData.get('rememberMe') === 'on';
+    return login(email, password, rememberMe);
   };
 
   const renderContent = () => {
@@ -499,10 +500,12 @@ export default function App() {
         return <ProtectedRoute roles={['SuperAdmin']}>{<WorkspaceSettingsPanel user={user} />}</ProtectedRoute>;
       case 'firm-profile':
         return <ProtectedRoute roles={['SuperAdmin']}>{<FirmProfilePanel user={user} />}</ProtectedRoute>;
+      case 'login-activity':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{<LoginActivityPanel user={user} />}</ProtectedRoute>;
       case 'auditlog':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<AuditCenter />)}</ProtectedRoute>;
       case 'security':
-        return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<SecurityCenter />)}</ProtectedRoute>;
+        return <ProtectedRoute roles={['SuperAdmin']}>{<SecuritySettingsPanel user={user} />}</ProtectedRoute>;
       case 'qa':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<OperationalQaInspector />)}</ProtectedRoute>;
       default:
@@ -527,7 +530,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginScreen onLogin={handleLogin} error={error} onSignupSuccess={refreshUser} />;
+    return <LoginScreen onLogin={handleLogin} onVerifyOtp={verifyEmailOtp} onResendOtp={resendEmailOtp} error={error} onSignupSuccess={refreshUser} />;
   }
 
   return (
@@ -574,7 +577,7 @@ export default function App() {
         </header>
         {subscriptionLocked && (
           <div className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-3 text-sm text-amber-100 flex items-center justify-between gap-4">
-            <span>Your CAATH subscription is inactive. Please activate your subscription to continue using all features.</span>
+            <span>Your workspace has been created successfully. To activate all CAATH PMS features, please purchase or renew your subscription.</span>
             <button
               onClick={() => setActiveTab('billing')}
               className="shrink-0 bg-gold px-3 py-1.5 text-xs font-bold text-matte-black"
@@ -646,7 +649,7 @@ const LockedModuleOverlay: React.FC<{ onActivate: () => void }> = ({ onActivate 
         </div>
         <h2 className="text-2xl font-bold text-white">Operational Module Locked</h2>
         <p className="mt-3 text-sm text-slate-400">
-          Your CAATH subscription is inactive. Please activate your subscription to continue using all features.
+          Your workspace has been created successfully. To activate all CAATH PMS features, please purchase or renew your subscription.
         </p>
         <button
           onClick={onActivate}
@@ -699,6 +702,168 @@ const FirmProfilePanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth>[
   </div>
 );
 
+const SecuritySettingsPanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth>['user']> }> = ({ user }) => {
+  const [settings, setSettings] = React.useState<AuthSecuritySettings | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    const load = async () => {
+      if (!user.firmId) return;
+      setSettings(await authSecurityService.getSettings(user.firmId));
+    };
+    load();
+  }, [user.firmId]);
+
+  const update = <K extends keyof AuthSecuritySettings>(key: K, value: AuthSecuritySettings[K]) => {
+    setSettings((current) => current ? { ...current, [key]: value } : current);
+  };
+
+  const save = async () => {
+    if (!settings || !user.firmId) return;
+    setSaving(true);
+    setNotice(null);
+    setError(null);
+    try {
+      await authSecurityService.updateSettings(user.firmId, settings);
+      setNotice('Security settings updated.');
+    } catch (saveError) {
+      setError(normalizeAuthError(saveError).userMessage);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!settings) {
+    return <div className="h-full bg-matte-black p-8 text-slate-500">Loading security settings...</div>;
+  }
+
+  return (
+    <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold gold-text-gradient">Security Settings</h2>
+          <p className="mt-1 text-sm text-slate-500">Configure OTP, lockout, and session policies for this workspace.</p>
+        </div>
+        <button onClick={save} disabled={saving} className="flex items-center gap-2 bg-gold px-4 py-2 text-sm font-bold text-matte-black disabled:opacity-50">
+          {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+          Save Settings
+        </button>
+      </div>
+
+      {notice && <div className="mt-5 border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">{notice}</div>}
+      {error && <div className="mt-5 border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">{error}</div>}
+
+      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+        <div className="border border-slate-800 bg-matte-black-light p-5">
+          <h3 className="font-bold text-white">Email OTP Policy</h3>
+          <div className="mt-5 space-y-4">
+            <label className="flex items-center justify-between gap-4 text-sm">
+              <span>Enable Email OTP</span>
+              <input type="checkbox" checked={settings.otpEnabled} onChange={(event) => update('otpEnabled', event.target.checked)} className="h-5 w-5 accent-gold" />
+            </label>
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-slate-500">Mandatory For</label>
+              <select value={settings.otpRequirementMode} onChange={(event) => update('otpRequirementMode', event.target.value as AuthSecuritySettings['otpRequirementMode'])} className="mt-2 w-full border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white">
+                <option value="admins">Super Admin and Admin</option>
+                <option value="staff">All internal users</option>
+                <option value="all">All users</option>
+              </select>
+            </div>
+            <NumberSetting label="OTP Expiry (minutes)" value={settings.otpExpiryMinutes} onChange={(value) => update('otpExpiryMinutes', value)} />
+            <NumberSetting label="OTP Attempt Limit" value={settings.otpAttemptLimit} onChange={(value) => update('otpAttemptLimit', value)} />
+            <NumberSetting label="Resend Limit" value={settings.otpResendLimit} onChange={(value) => update('otpResendLimit', value)} />
+            <NumberSetting label="Resend Cooldown (seconds)" value={settings.otpResendCooldownSeconds} onChange={(value) => update('otpResendCooldownSeconds', value)} />
+          </div>
+        </div>
+
+        <div className="border border-slate-800 bg-matte-black-light p-5">
+          <h3 className="font-bold text-white">Account & Session Protection</h3>
+          <div className="mt-5 space-y-4">
+            <NumberSetting label="Failed Password Limit" value={settings.failedPasswordLimit} onChange={(value) => update('failedPasswordLimit', value)} />
+            <NumberSetting label="Lockout Duration (minutes)" value={settings.lockoutMinutes} onChange={(value) => update('lockoutMinutes', value)} />
+            <NumberSetting label="Session Timeout (minutes)" value={settings.sessionTimeoutMinutes} onChange={(value) => update('sessionTimeoutMinutes', value)} />
+            <NumberSetting label="Remember Me Duration (days)" value={settings.rememberMeSessionDays} onChange={(value) => update('rememberMeSessionDays', value)} />
+            <div className="border border-slate-800 bg-matte-black p-4 text-xs text-slate-400">
+              Future-ready hooks are reserved for CAPTCHA, SMS OTP, authenticator apps, Microsoft 365, Google Sign-In, WebAuthn/FIDO2, and biometric mobile authentication.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const NumberSetting: React.FC<{ label: string; value: number; onChange: (value: number) => void }> = ({ label, value, onChange }) => (
+  <div>
+    <label className="block text-xs uppercase tracking-wider text-slate-500">{label}</label>
+    <input
+      type="number"
+      min={1}
+      value={value}
+      onChange={(event) => onChange(Math.max(1, Number(event.target.value)))}
+      className="mt-2 w-full border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white"
+    />
+  </div>
+);
+
+const LoginActivityPanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth>['user']> }> = ({ user }) => {
+  const [rows, setRows] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const load = async () => {
+      if (!user.firmId) return;
+      setLoading(true);
+      try {
+        const orgWide = user.role === 'SuperAdmin';
+        setRows(await authSecurityService.listLoginActivity(user.firmId, user.id, orgWide));
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [user.firmId, user.id, user.role]);
+
+  return (
+    <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
+      <h2 className="text-2xl font-bold gold-text-gradient">Login Activity</h2>
+      <p className="mt-1 text-sm text-slate-500">{user.role === 'SuperAdmin' ? 'Organization-wide authentication audit trail.' : 'Your authentication audit trail.'}</p>
+      <div className="mt-6 overflow-hidden border border-slate-800 bg-matte-black-light">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Time</th>
+              <th className="px-4 py-3">Email</th>
+              <th className="px-4 py-3">Event</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">OTP</th>
+              <th className="px-4 py-3">Device</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {loading ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">Loading activity...</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">No login activity recorded yet.</td></tr>
+            ) : rows.map((row) => (
+              <tr key={row.id}>
+                <td className="px-4 py-3 text-xs text-slate-400">{new Date(row.created_at).toLocaleString()}</td>
+                <td className="px-4 py-3 text-xs text-white">{row.email}</td>
+                <td className="px-4 py-3 text-xs text-slate-300">{row.event_type}</td>
+                <td className={`px-4 py-3 text-xs font-bold ${row.status === 'Success' ? 'text-emerald-300' : 'text-red-300'}`}>{row.status}</td>
+                <td className="px-4 py-3 text-xs text-slate-400">{row.otp_status || '-'}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">{row.device_label || 'Unknown device'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 const ProfileField: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div>
     <p className="text-xs uppercase tracking-wider text-slate-500">{label}</p>
@@ -706,11 +871,47 @@ const ProfileField: React.FC<{ label: string; value: string }> = ({ label, value
   </div>
 );
 
+const AuthPasswordField: React.FC<{
+  name: string;
+  label: string;
+  placeholder: string;
+  autoComplete?: string;
+}> = ({ name, label, placeholder, autoComplete }) => {
+  const [visible, setVisible] = React.useState(false);
+
+  return (
+    <div>
+      <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">{label}</label>
+      <div className="relative">
+        <input
+          name={name}
+          type={visible ? 'text' : 'password'}
+          required
+          minLength={8}
+          autoComplete={autoComplete}
+          placeholder={placeholder}
+          className="w-full px-4 py-2 pr-11 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((current) => !current)}
+          aria-label={visible ? 'Hide password' : 'Show password'}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-500 transition-colors hover:text-gold"
+        >
+          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const LoginScreen: React.FC<{
-  onLogin: (event: React.FormEvent<HTMLFormElement>) => void;
+  onLogin: (event: React.FormEvent<HTMLFormElement>) => Promise<{ requiresOtp: boolean; email?: string } | void>;
+  onVerifyOtp: (email: string, otp: string) => Promise<void>;
+  onResendOtp: (email: string) => Promise<void>;
   error: string | null;
   onSignupSuccess: () => void;
-}> = ({ onLogin, error, onSignupSuccess }) => {
+}> = ({ onLogin, onVerifyOtp, onResendOtp, error, onSignupSuccess }) => {
   const initialMode = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -720,6 +921,10 @@ const LoginScreen: React.FC<{
   const [localError, setLocalError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [otpEmail, setOtpEmail] = React.useState<string | null>(null);
+  const [otpValue, setOtpValue] = React.useState('');
+  const [resendNotice, setResendNotice] = React.useState<string | null>(null);
+  const otpInputRef = React.useRef<HTMLInputElement | null>(null);
   const { isDevMode } = React.useMemo(() => ({
     isDevMode: import.meta.env.DEV
   }), []);
@@ -728,6 +933,14 @@ const LoginScreen: React.FC<{
   const isCreateAccount = authMode === 'signup';
   const isForgotPassword = authMode === 'forgot';
   const isResetPassword = authMode === 'reset';
+
+  React.useEffect(() => {
+    if (otpEmail) {
+      window.setTimeout(() => otpInputRef.current?.focus(), 50);
+    }
+  }, [otpEmail]);
+
+  const validateEmail = (value: string) => /.+@.+\..+/.test(value);
 
   const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -743,6 +956,18 @@ const LoginScreen: React.FC<{
     const mobile = String(formData.get('mobile') ?? '').trim();
     const gstin = String(formData.get('gstin') ?? '').trim();
     const subscriptionPlan = String(formData.get('subscriptionPlan') ?? 'Starter') as 'Starter' | 'Professional' | 'Enterprise';
+
+    if (!isResetPassword && !validateEmail(email)) {
+      setLocalError('Please enter a valid email address.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (!isForgotPassword && password.length < 8) {
+      setLocalError('Password should be at least 8 characters.');
+      setIsLoading(false);
+      return;
+    }
 
     if (isForgotPassword) {
       try {
@@ -795,12 +1020,51 @@ const LoginScreen: React.FC<{
       setNotice('Workspace created. Loading your secure dashboard...');
     } else {
       try {
-        await onLogin(event);
+        const result = await onLogin(event);
+        if (result?.requiresOtp && result.email) {
+          setOtpEmail(result.email);
+          setNotice('We sent a secure one-time password to your registered email.');
+        }
       } catch (loginError) {
         setLocalError(normalizeAuthError(loginError).userMessage);
       }
     }
     setIsLoading(false);
+  };
+
+  const handleOtpVerify = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!otpEmail) return;
+    const cleanOtp = otpValue.trim();
+    if (!/^\d{6}$/.test(cleanOtp)) {
+      setLocalError('Enter the 6-digit OTP sent to your email.');
+      return;
+    }
+    setIsLoading(true);
+    setLocalError(null);
+    try {
+      await onVerifyOtp(otpEmail, cleanOtp);
+      setNotice('OTP verified. Loading your secure workspace...');
+    } catch (otpError) {
+      setLocalError(normalizeAuthError(otpError).userMessage || 'The OTP is invalid or expired. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!otpEmail) return;
+    setIsLoading(true);
+    setLocalError(null);
+    setResendNotice(null);
+    try {
+      await onResendOtp(otpEmail);
+      setResendNotice('A new OTP has been sent. Previous codes are no longer valid.');
+    } catch (resendError) {
+      setLocalError(normalizeAuthError(resendError).userMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const fillCredential = (email: string) => {
@@ -819,13 +1083,80 @@ const LoginScreen: React.FC<{
         <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-bold">Secure Practice OS</p>
       </div>
 
-      <div className="bg-matte-black-light border border-slate-800 p-6">
+      <div className="bg-matte-black-light border border-slate-800 p-6 shadow-2xl shadow-black/30">
+        {otpEmail ? (
+          <>
+            <div className="mb-6 flex items-start gap-3">
+              <div className="flex h-10 w-10 items-center justify-center bg-gold/10 text-gold">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">Verify Email OTP</h2>
+                <p className="mt-1 text-sm text-slate-500">Enter the 6-digit code sent to {otpEmail}. It expires in 5 minutes.</p>
+              </div>
+            </div>
+
+            {(error || localError) && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-sm text-red-300">
+                {error || localError}
+              </div>
+            )}
+            {(notice || resendNotice) && (
+              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-200">
+                {resendNotice || notice}
+              </div>
+            )}
+
+            <form onSubmit={handleOtpVerify} className="space-y-4">
+              <div>
+                <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">One-Time Password</label>
+                <input
+                  ref={otpInputRef}
+                  value={otpValue}
+                  onChange={(event) => setOtpValue(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  className="w-full border border-slate-800 bg-matte-black px-4 py-3 text-center text-2xl font-bold tracking-[0.35em] text-white outline-none focus:ring-1 focus:ring-gold"
+                />
+              </div>
+              <button type="submit" disabled={isLoading} className="flex w-full items-center justify-center gap-2 py-2.5 bg-gold text-matte-black font-bold hover:bg-gold-light disabled:opacity-50 transition-colors">
+                {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Verify & Continue
+              </button>
+            </form>
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button type="button" onClick={() => setOtpEmail(null)} className="text-xs text-slate-500 hover:text-gold">
+                Back to sign in
+              </button>
+              <button type="button" onClick={handleResendOtp} disabled={isLoading} className="text-xs font-bold text-gold disabled:opacity-50">
+                Resend OTP
+              </button>
+            </div>
+          </>
+        ) : (
+        <>
         <h2 className="text-xl font-bold text-white mb-1">
           {isCreateAccount ? 'Create Your CAATH Workspace' : isForgotPassword ? 'Reset Password' : isResetPassword ? 'Set New Password' : 'Sign In'}
         </h2>
         <p className="text-sm text-slate-500 mb-6">
           {isCreateAccount ? 'Launch your secure digital practice workspace in minutes.' : isForgotPassword ? 'Request a secure account recovery link' : isResetPassword ? 'Choose a new password for your account' : 'Secure access to your practice workspace'}
         </p>
+
+        {isCreateAccount && (
+          <div className="mb-6 grid grid-cols-3 gap-2 text-center text-[10px] uppercase tracking-wider">
+            {['Account Details', 'Email Verification', 'Account Activated'].map((step, index) => (
+              <div key={step} className="border border-slate-800 bg-matte-black p-2 text-slate-400">
+                <div className="mx-auto mb-1 flex h-5 w-5 items-center justify-center bg-gold/10 text-gold">
+                  {index === 0 ? <CheckCircle2 className="h-3 w-3" /> : index + 1}
+                </div>
+                {step}
+              </div>
+            ))}
+          </div>
+        )}
 
         {(error || localError) && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-sm text-red-300">
@@ -891,17 +1222,22 @@ const LoginScreen: React.FC<{
             </div>
           )}
           {!isForgotPassword && (
-            <div>
-              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">{isResetPassword ? 'New Password' : 'Password'}</label>
+            <AuthPasswordField
+              name="password"
+              label={isResetPassword ? 'New Password' : 'Password'}
+              placeholder={isResetPassword ? 'Enter new password' : 'Enter password'}
+              autoComplete={isResetPassword ? 'new-password' : 'current-password'}
+            />
+          )}
+          {!isCreateAccount && !isForgotPassword && !isResetPassword && (
+            <label className="flex items-center gap-2 text-xs text-slate-400">
               <input
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                placeholder={isResetPassword ? 'Enter new password' : 'Enter password'}
-                className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
+                name="rememberMe"
+                type="checkbox"
+                className="h-4 w-4 accent-gold"
               />
-            </div>
+              Remember this device
+            </label>
           )}
           {isCreateAccount && (
             <div>
@@ -917,7 +1253,8 @@ const LoginScreen: React.FC<{
               </select>
             </div>
           )}
-          <button type="submit" disabled={isLoading} className="w-full py-2.5 bg-gold text-matte-black font-bold hover:bg-gold-light disabled:opacity-50 transition-colors">
+          <button type="submit" disabled={isLoading} className="flex w-full items-center justify-center gap-2 py-2.5 bg-gold text-matte-black font-bold hover:bg-gold-light disabled:opacity-50 transition-colors">
+            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
             {isLoading ? 'Processing...' : isCreateAccount ? 'Create Workspace' : isForgotPassword ? 'Send Reset Link' : isResetPassword ? 'Update Password' : 'Sign In'}
           </button>
         </form>
@@ -951,6 +1288,8 @@ const LoginScreen: React.FC<{
             </button>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {isDevMode && devUsers.length > 0 && (
@@ -975,6 +1314,6 @@ const LoginScreen: React.FC<{
           </div>
         </div>
       )}
-    </div>
+      </div>
   </div>
 );};

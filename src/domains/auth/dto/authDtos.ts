@@ -3,6 +3,7 @@ import { User, UserRole, WorkspaceSubscriptionPlan, SubscriptionStatus } from '.
 export type LoginRequestDto = {
   email: string;
   password: string;
+  rememberMe?: boolean;
 };
 
 export type AuthProfileDto = User;

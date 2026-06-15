@@ -144,7 +144,7 @@ export const getSecureAuthHeaders = (token: string): Record<string, string> => {
  * @param metadata Additional non-sensitive metadata
  */
 export const auditAuthEvent = async (
-  action: 'login' | 'logout' | 'failed_login' | 'session_refresh' | 'password_reset' | 'mfa_verify',
+  action: 'login' | 'logout' | 'failed_login' | 'session_refresh' | 'password_reset' | 'mfa_verify' | 'otp_generated' | 'otp_verified',
   userId?: string,
   metadata?: Record<string, any>
 ): Promise<void> => {
@@ -159,6 +159,8 @@ export const auditAuthEvent = async (
         action === 'login' ? 'auth.login_success' :
         action === 'logout' ? 'auth.logout' :
         action === 'failed_login' ? 'auth.login_failure' :
+        action === 'otp_generated' ? 'auth.mfa_challenge' :
+        action === 'otp_verified' ? 'auth.mfa_verify' :
         'auth.session_refresh',
       actorId: userId,
       severity: action === 'failed_login' ? 'warning' : 'info',

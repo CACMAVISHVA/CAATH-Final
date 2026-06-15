@@ -4,6 +4,8 @@ export type SecurityEventType =
   | 'auth.login_failure'
   | 'auth.logout'
   | 'auth.session_refresh'
+  | 'auth.mfa_challenge'
+  | 'auth.mfa_verify'
   | 'portal.credential_access'
   | 'portal.credential_reveal'
   | 'admin.action'

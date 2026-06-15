@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { User, UserRole, WorkspaceSubscriptionPlan, SubscriptionStatus } from '../types';
+import { authSecurityService } from './authSecurityService';
 
 export const ONBOARDING_ROLES: UserRole[] = ['SuperAdmin', 'Admin', 'Staff', 'Client'];
 export const SELF_SERVICE_ONBOARDING_ROLE: UserRole = 'Client';
@@ -46,10 +47,13 @@ const canCreateRole = (actorRole: UserRole | null, targetRole: UserRole) => {
     return targetRole === 'SuperAdmin' || targetRole === 'Admin' || targetRole === 'Staff' || targetRole === 'Client';
   }
   if (actorRole === 'SuperAdmin') {
-    return targetRole === 'Admin' || targetRole === 'Staff' || targetRole === 'Client';
+    return targetRole === 'SuperAdmin' || targetRole === 'Admin' || targetRole === 'Staff' || targetRole === 'Client';
   }
   if (actorRole === 'Admin') {
     return targetRole === 'Staff' || targetRole === 'Client';
+  }
+  if (actorRole === 'Staff') {
+    return targetRole === 'Client';
   }
   return false;
 };
@@ -87,11 +91,25 @@ export const createAccountWithRole = async ({
         full_name: fullName.trim(),
         requested_role: role,
         requested_firm_id: resolvedFirmId,
+        is_workspace_owner: false,
       },
     },
   });
 
   if (error) throw error;
+  await authSecurityService.recordLoginActivity({
+    firmId: resolvedFirmId,
+    userId: actor?.id,
+    authId: actor?.authId,
+    email: email.trim(),
+    status: 'Success',
+    eventType: 'user_provisioned',
+    details: {
+      action: 'user_provisioned',
+      targetRole: role,
+      actorRole: actor?.role ?? 'SelfService',
+    },
+  });
   return data;
 };
 
@@ -109,7 +127,7 @@ export const createWorkspaceOwnerAccount = async ({
   const cleanName = fullName.trim();
   const cleanMobile = mobile.trim();
   const limits = PLAN_LIMITS[subscriptionPlan];
-  const subscriptionStatus: SubscriptionStatus = 'Trial';
+  const subscriptionStatus: SubscriptionStatus = 'Pending Subscription';
   const subscriptionStartDate = new Date();
   const subscriptionExpiryDate = new Date(subscriptionStartDate);
   subscriptionExpiryDate.setDate(subscriptionExpiryDate.getDate() + 14);
@@ -126,6 +144,7 @@ export const createWorkspaceOwnerAccount = async ({
         full_name: cleanName,
         mobile: cleanMobile,
         requested_role: 'SuperAdmin',
+        is_workspace_owner: true,
       },
     },
   });
@@ -187,6 +206,7 @@ export const createWorkspaceOwnerAccount = async ({
       mobile: cleanMobile,
       requested_role: 'SuperAdmin',
       requested_firm_id: firm.id,
+      is_workspace_owner: true,
     },
   });
 

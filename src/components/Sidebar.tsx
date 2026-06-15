@@ -102,6 +102,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'user-management', label: 'User Management', icon: UserCog },
       { id: 'workspace-settings', label: 'Workspace Settings', icon: Settings },
       { id: 'firm-profile', label: 'Firm Profile', icon: Building2 },
+      { id: 'login-activity', label: 'Login Activity', icon: Activity },
     ];
 
     const items = [...baseItems];
@@ -122,7 +123,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (user?.role === 'Staff') {
-      visibleItems = items.filter(item => !['billing', 'user-management', 'workspace-settings', 'firm-profile', 'staff', 'auditlog', 'security', 'approvals'].includes(item.id));
+      visibleItems = items.filter(item => !['billing', 'user-management', 'workspace-settings', 'firm-profile', 'login-activity', 'staff', 'auditlog', 'security', 'approvals'].includes(item.id));
     }
 
     const byId = new Map(visibleItems.map((item) => [item.id, item]));
@@ -133,8 +134,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { label: 'Work', items: pick(['tasks', 'clients', 'documents']) },
       { label: 'Compliance', items: pick(['gst', 'compliance', 'notifications', 'notices']) },
       { label: 'Control', items: pick(['approvals', 'governance']) },
-      { label: 'Workspace Administration', items: pick(['user-management', 'billing', 'workspace-settings', 'firm-profile']) },
-      { label: 'Administration', items: pick(['staff', 'auditlog', 'security', 'qa']) },
+      { label: 'Workspace Administration', items: pick(['user-management', 'billing', 'workspace-settings', 'firm-profile', 'security', 'login-activity']) },
+      { label: 'Administration', items: pick(['staff', 'auditlog', 'qa']) },
     ].filter((section) => section.items.length > 0);
   };
 

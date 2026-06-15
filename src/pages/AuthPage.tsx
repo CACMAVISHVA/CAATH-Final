@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
 import { createAccountWithRole, SELF_SERVICE_ONBOARDING_ROLE } from '../services/accountOnboardingService'
 import { authService } from '../domains/auth/services/authService'
 import { normalizeAuthError } from '../lib/authErrorNormalizer'
@@ -10,6 +11,7 @@ export const Auth = () => {
   const [email, setEmail] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [fullName, setFullName] = useState('')
   const [firmId, setFirmId] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -96,17 +98,27 @@ export const Auth = () => {
             className="w-full p-4 rounded-xl bg-matte-black border border-slate-700 text-white disabled:opacity-50"
           />
 
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={isLoading}
-            onKeyPress={(e) => {
-              if (e.key === 'Enter' && !isLoading) handleAuth()
-            }}
-            className="w-full p-4 rounded-xl bg-matte-black border border-slate-700 text-white disabled:opacity-50"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={isLoading}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter' && !isLoading) handleAuth()
+              }}
+              className="w-full p-4 pr-12 rounded-xl bg-matte-black border border-slate-700 text-white disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-gold"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
 
           {!isLogin && (
             <>

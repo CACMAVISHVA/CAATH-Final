@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, DollarSign, ShieldCheck, Users, Lock, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, DollarSign, ShieldCheck, Users, Lock, ShieldAlert, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getWorkforceProfiles } from '../services/workforceService';
 import { approvePayrollRun, getPayrollRuns, getSalaryStructures, logPayrollWorkspaceAccess, submitPayrollApproval } from '../services/payrollService';
@@ -12,6 +12,7 @@ export const PayrollWorkspace: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [lastActivityAt, setLastActivityAt] = useState<number>(Date.now());
@@ -112,7 +113,10 @@ export const PayrollWorkspace: React.FC = () => {
     setVerifying(true);
     setUnlockError(null);
     try {
-      await authService.login({ email: user.email, password });
+      const result = await authService.login({ email: user.email, password });
+      if (result.requiresOtp) {
+        throw new Error('Step-up verification requires the full sign-in flow.');
+      }
     } catch {
       setUnlockError('Secure verification failed. Please re-enter your password.');
       setVerifying(false);
@@ -232,14 +236,24 @@ export const PayrollWorkspace: React.FC = () => {
             <ShieldAlert className="w-4 h-4 mt-0.5" />
             <span>Compensation data is confidential and protected by step-up authentication.</span>
           </div>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoFocus
-            placeholder="Re-enter account password"
-            className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+              placeholder="Re-enter account password"
+              className="w-full p-3 pr-11 rounded-xl bg-matte-black border border-slate-700 text-white"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-500 hover:text-gold"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
           {unlockError && <p className="text-sm text-red-400">{unlockError}</p>}
           <button
             onClick={verifyPayrollAccess}
