@@ -76,9 +76,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initializeAuth = async () => {
       setIsLoading(true);
       setError(null);
+      let nextSession: Session | null = null;
 
       try {
-        const nextSession = await authService.getSession();
+        nextSession = await authService.getSession();
         if (!mounted) return;
 
         if (nextSession?.expires_at && !authService.isSessionActive(nextSession.expires_at)) {
@@ -95,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (mounted) {
           const safeError = normalizeAuthError(sessionError);
           setError(safeError.userMessage);
-          setSession(null);
+          setSession(nextSession);
           setUser(null);
         }
       } finally {
