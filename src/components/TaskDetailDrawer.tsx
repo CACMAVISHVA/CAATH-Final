@@ -21,7 +21,8 @@ import {
   Paperclip,
   FileText,
   ArrowRight,
-  MoreVertical
+  MoreVertical,
+  ExternalLink
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
@@ -56,6 +57,7 @@ import {
 import { RoleBasedAssignment } from './RoleBasedAssignment';
 import { TaskActivityTimeline } from './task-detail/TaskActivityTimeline';
 import { useOverlayLifecycle } from '../hooks/useOverlayLifecycle';
+import { GOVERNMENT_PORTALS, openOfficialPortal, recordGovernmentPortalAccess } from '../services/governmentPortalService';
 
 interface TaskDetailDrawerProps {
   task: TaskRow | null;
@@ -305,6 +307,20 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
   if (!isOpen || !task) return null;
 
   const progress = getSubtaskProgress();
+  const linkedPortal = GOVERNMENT_PORTALS.find((portal) => {
+    if (task.portal_type === portal.type) return true;
+    if (portal.type === 'GST') return task.category === 'GST';
+    if (portal.type === 'IncomeTax') return task.category === 'Income Tax';
+    if (portal.type === 'MCA') return task.category === 'MCA' || task.category === 'ROC';
+    if (portal.type === 'TRACES') return task.category === 'TDS';
+    return false;
+  });
+
+  const handlePortalLaunch = async () => {
+    if (!linkedPortal || !user) return;
+    await recordGovernmentPortalAccess({ user, portal: linkedPortal, task, action: 'portal_launch' });
+    openOfficialPortal(linkedPortal);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -384,6 +400,15 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
               >
                 <CheckCircle2 className="w-3 h-3" />
                 Mark Complete
+              </button>
+            )}
+            {linkedPortal && (
+              <button
+                onClick={handlePortalLaunch}
+                className="flex items-center gap-1 text-xs bg-gold/10 text-gold border border-gold/20 rounded px-2 py-1 hover:bg-gold/20"
+              >
+                <ExternalLink className="w-3 h-3" />
+                {linkedPortal.shortName}
               </button>
             )}
           </div>

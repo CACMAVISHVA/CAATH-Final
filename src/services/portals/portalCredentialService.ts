@@ -11,6 +11,7 @@ const PORTAL_URLS: Record<string, string> = {
   GST: 'https://www.gst.gov.in/',
   MCA: 'https://www.mca.gov.in/',
   IncomeTax: 'https://www.incometax.gov.in/',
+  TRACES: 'https://www.tdscpc.gov.in/app/login.xhtml',
   ICEGATE: 'https://www.icegate.gov.in/',
   EPFO: 'https://www.epfindia.gov.in/',
   ESIC: 'https://www.esic.gov.in/',

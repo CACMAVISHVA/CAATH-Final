@@ -38,6 +38,13 @@ import {
   PORTAL_CONFIG,
   launchPortal,
 } from '../services/portalLauncherService';
+import {
+  GOVERNMENT_PORTALS,
+  getClientIdentifier,
+  getPortalUsername,
+  openOfficialPortal,
+  recordGovernmentPortalAccess,
+} from '../services/governmentPortalService';
 import { useClientProfileData } from '../hooks/useClientProfileData';
 import { playSound } from '../services/soundService';
 import {
@@ -102,6 +109,7 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
   } = useClientProfileData(client, user?.firmId);
   const [portalCredentials, setPortalCredentials] = useState<PortalCredentialSummary[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [copiedPortalField, setCopiedPortalField] = useState<string | null>(null);
 
   const loadPortalCredentials = useCallback(async () => {
     if (!client) return;
@@ -129,6 +137,24 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
     const result = await launchPortal(credentialId, user, client.id);
     window.open(result.url, '_blank');
   }, [canUsePortal, client, user]);
+
+  const handleOfficialPortalLaunch = useCallback(async (portalType: typeof GOVERNMENT_PORTALS[number]['type']) => {
+    if (!user || !client) return;
+    const portal = GOVERNMENT_PORTALS.find((item) => item.type === portalType);
+    if (!portal) return;
+    await recordGovernmentPortalAccess({ user, portal, client, action: 'portal_launch' });
+    openOfficialPortal(portal);
+  }, [client, user]);
+
+  const handleCopyPortalField = useCallback(async (label: string, value: string, portalType: typeof GOVERNMENT_PORTALS[number]['type']) => {
+    if (!value || !user || !client) return;
+    const portal = GOVERNMENT_PORTALS.find((item) => item.type === portalType);
+    if (!portal) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedPortalField(label);
+    window.setTimeout(() => setCopiedPortalField(null), 1600);
+    await recordGovernmentPortalAccess({ user, portal, client, action: 'identifier_copy' });
+  }, [client, user]);
 
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -544,9 +570,12 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
             <div className="space-y-6">
               {/* Portal Quick Launch Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {(['GST', 'MCA', 'IncomeTax', 'ICEGATE'] as const).map((portalType) => {
+                {GOVERNMENT_PORTALS.map((portal) => {
+                  const portalType = portal.type;
                   const config = PORTAL_CONFIG[portalType];
                   const credential = portalCredentials.find(c => c.portal_type === portalType);
+                  const identifier = getClientIdentifier(client, portal);
+                  const portalUsername = getPortalUsername(client, portal);
                   return (
                     <div
                       key={portalType}
@@ -555,14 +584,9 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
                         credential
                           ? "bg-matte-black border-slate-800 hover:shadow-lg hover:shadow-gold/5"
                           : "bg-matte-black/50 border-slate-800/50 border-dashed opacity-60",
-                        !credential || !canUsePortal ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                        !canUsePortal ? 'cursor-not-allowed opacity-70' : 'cursor-default'
                       )}
-                      onClick={async () => {
-                        playSound('click');
-                        if (credential && canUsePortal) {
-                          await handleLaunchPortal(credential.id);
-                        }
-                      }}
+                      onClick={() => playSound('click')}
                       title={!canUsePortal ? 'Insufficient portal access' : undefined}
                     >
                       <div className="flex items-center justify-between mb-3">
@@ -578,6 +602,32 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
                       </div>
                       <h4 className="text-sm font-bold text-white">{config.name}</h4>
                       <p className="text-[10px] text-slate-500 mt-1">{config.description}</p>
+                      <div className="mt-3 space-y-2">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleOfficialPortalLaunch(portalType);
+                          }}
+                          className="w-full rounded-md bg-gold px-3 py-1.5 text-xs font-bold text-matte-black"
+                        >
+                          Open Official
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!identifier}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleCopyPortalField(portal.identifierLabel, identifier, portalType);
+                          }}
+                          className="w-full rounded-md border border-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300 disabled:opacity-40"
+                        >
+                          {copiedPortalField === portal.identifierLabel ? 'Copied' : `Copy ${portal.identifierLabel}`}
+                        </button>
+                        {portalUsername && (
+                          <p className="truncate text-[10px] text-slate-500">User: {portalUsername}</p>
+                        )}
+                      </div>
                       {credential?.last_login && (
                         <p className="text-[10px] text-slate-600 mt-2">
                           Last: {new Date(credential.last_login).toLocaleDateString()}

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type PortalType = 'GST' | 'MCA' | 'IncomeTax' | 'ICEGATE' | 'EPFO' | 'ESIC' | 'Banking' | 'Custom';
+export type PortalType = 'GST' | 'MCA' | 'IncomeTax' | 'TRACES' | 'ICEGATE' | 'EPFO' | 'ESIC' | 'Banking' | 'Custom';
 
 export interface PortalCredential {
   id: string;

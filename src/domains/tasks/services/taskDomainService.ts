@@ -27,7 +27,7 @@ export type TaskStatus =
   | 'Archived'
   | 'Todo'
   | 'Review';
-export type TaskCategory = 'GST' | 'Income Tax' | 'Audit' | 'ROC' | 'TDS' | 'Other';
+export type TaskCategory = 'GST' | 'Income Tax' | 'Audit' | 'ROC' | 'MCA' | 'TDS' | 'Other';
 
 export type TaskInput = {
   firmId: string;
@@ -38,6 +38,8 @@ export type TaskInput = {
   priority?: TaskPriority;
   status?: TaskStatus;
   category?: TaskCategory;
+  portalType?: string;
+  portalWorkflowType?: string;
   deadline?: string;
   user: User;
 };
@@ -52,6 +54,8 @@ export type TaskRow = {
   priority: TaskPriority;
   status: TaskStatus;
   category: string | null;
+  portal_type?: string | null;
+  portal_workflow_type?: string | null;
   deadline: string | null;
   created_by: string | null;
   updated_by: string | null;
@@ -113,7 +117,7 @@ const assertCanDelegateToRole = (actorRole: UserRole, assigneeRole: UserRole) =>
   if (actorRole !== 'GodAdmin') throw new Error('Delegation is not allowed for this role.');
 };
 
-export const createTask = async ({ firmId, clientId, assignedTo, title, description, priority = 'Medium', status, category, deadline, user }: TaskInput) => {
+export const createTask = async ({ firmId, clientId, assignedTo, title, description, priority = 'Medium', status, category, portalType, portalWorkflowType, deadline, user }: TaskInput) => {
   if (!user.firmId) throw new Error('A firm workspace is required to create tasks.');
   assertFirmScope(user, firmId);
 
@@ -133,6 +137,8 @@ export const createTask = async ({ firmId, clientId, assignedTo, title, descript
     priority,
     status: effectiveStatus,
     category,
+    portal_type: portalType || null,
+    portal_workflow_type: portalWorkflowType || null,
     deadline: deadline ? new Date(deadline).toISOString() : null,
     created_by: user.id,
     updated_by: user.id,

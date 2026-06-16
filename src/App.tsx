@@ -61,6 +61,7 @@ const AutomationCenter = lazy(() => import('./components/ArchitectureModules').t
 const AiFoundation = lazy(() => import('./components/ArchitectureModules').then((module) => ({ default: module.AiFoundation })));
 const OperationalQaInspector = lazy(() => import('./components/OperationalQaInspector'));
 const PayrollWorkspace = lazy(() => import('./components/PayrollWorkspace'));
+const GovernmentPortalHub = lazy(() => import('./components/GovernmentPortalHub'));
 
 export default function App() {
   const { user, session, isLoading, error, login, verifyEmailOtp, resendEmailOtp, logout, refreshUser, subscriptionLocked } = useAuth();
@@ -449,6 +450,11 @@ export default function App() {
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<ComplianceTracker />)}</ProtectedRoute>;
       case 'gst':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}><GSTIntelligenceCenter /></ProtectedRoute>;
+      case 'portal-gst':
+      case 'portal-income-tax':
+      case 'portal-mca':
+      case 'portal-traces':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<GovernmentPortalHub initialPortalTab={activeTab} />)}</ProtectedRoute>;
       case 'tasks':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<TaskBoard />)}</ProtectedRoute>;
       case 'documents':

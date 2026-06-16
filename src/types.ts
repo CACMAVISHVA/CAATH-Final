@@ -78,6 +78,10 @@ export interface Client {
   pan: string;
   gstin?: string;
   cin?: string;
+  tan?: string;
+  cinLlpin?: string;
+  portalUsername?: string;
+  portalUsernames?: Record<string, string>;
   aadhaar?: string;
   riskLevel: RiskLevel;
   tags: string[];
@@ -118,6 +122,8 @@ export interface Task {
   deadline: string;
   status: TaskStatus;
   category: string;
+  portalType?: string;
+  portalWorkflowType?: string;
 }
 
 export interface Notice {

@@ -6,7 +6,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
-import { LogOut, User as UserIcon, LayoutDashboard, FileText, MessageSquare, Clock, CreditCard, ShieldCheck, Users, CheckSquare, Bell, UserCog, History as HistoryIcon, FileCheck2, FolderLock, Building2, Activity, Database, Settings, Megaphone, BarChart3, Bug, PanelsTopLeft, Scale } from 'lucide-react';
+import { LogOut, User as UserIcon, LayoutDashboard, FileText, MessageSquare, Clock, CreditCard, ShieldCheck, Users, CheckSquare, Bell, UserCog, History as HistoryIcon, FileCheck2, FolderLock, Building2, Activity, Database, Settings, Megaphone, BarChart3, Bug, PanelsTopLeft, Scale, ExternalLink } from 'lucide-react';
 import { User } from '../types';
 import { getUserFullName, getUserDisplayRole } from '../lib/userHelpers';
 import { Logo } from './Logo';
@@ -94,6 +94,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'documents', label: 'Document Vault', icon: FolderLock },
       { id: 'compliance', label: 'Compliance', icon: ShieldCheck },
       { id: 'gst', label: 'GST Intelligence', icon: BarChart3 },
+      { id: 'portal-gst', label: 'GST Portal', icon: ExternalLink },
+      { id: 'portal-income-tax', label: 'Income Tax Portal', icon: ExternalLink },
+      { id: 'portal-mca', label: 'MCA Portal', icon: ExternalLink },
+      { id: 'portal-traces', label: 'TRACES Portal', icon: ExternalLink },
       { id: 'notifications', label: 'Notifications', icon: Bell },
       { id: 'notices', label: 'Notice Center', icon: Bell },
       { id: 'approvals', label: 'Approvals', icon: FileCheck2 },
@@ -133,6 +137,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { label: 'Focus', items: pick(['workspace', 'dashboard', 'analytics']) },
       { label: 'Work', items: pick(['tasks', 'clients', 'documents']) },
       { label: 'Compliance', items: pick(['gst', 'compliance', 'notifications', 'notices']) },
+      { label: 'Government Portals', items: pick(['portal-gst', 'portal-income-tax', 'portal-mca', 'portal-traces']) },
       { label: 'Control', items: pick(['approvals', 'governance']) },
       { label: 'Workspace Administration', items: pick(['user-management', 'billing', 'workspace-settings', 'firm-profile', 'security', 'login-activity']) },
       { label: 'Administration', items: pick(['staff', 'auditlog', 'qa']) },

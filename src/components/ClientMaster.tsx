@@ -54,6 +54,9 @@ interface ClientFormData {
   type: string;
   pan: string;
   gstin: string;
+  tan: string;
+  cinLlpin: string;
+  portalUsername: string;
   email: string;
   phone: string;
   services: string[];
@@ -76,6 +79,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
     type: '',
     pan: '',
     gstin: '',
+    tan: '',
+    cinLlpin: '',
+    portalUsername: '',
     email: '',
     phone: '',
     services: [],
@@ -85,6 +91,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
     type: '',
     pan: '',
     gstin: '',
+    tan: '',
+    cinLlpin: '',
+    portalUsername: '',
     email: '',
     phone: '',
     services: [],
@@ -182,6 +191,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
         type: formData.type,
         pan: formData.pan,
         gstin: formData.gstin,
+        tan: formData.tan,
+        cinLlpin: formData.cinLlpin,
+        portalUsername: formData.portalUsername,
         email: formData.email,
         phone: formData.phone,
         services: formData.services,
@@ -204,6 +216,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
     try {
       await updateClient(editClient.id, {
         name: formData.name,
+        tan: formData.tan,
+        cinLlpin: formData.cinLlpin,
+        portalUsername: formData.portalUsername,
         email: formData.email,
         phone: formData.phone,
         services: formData.services,
@@ -236,6 +251,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
       type: client.type || '',
       pan: client.pan || '',
       gstin: client.gstin || '',
+      tan: client.tan || '',
+      cinLlpin: client.cin_llpin || '',
+      portalUsername: client.portal_username || '',
       email: client.email || '',
       phone: client.phone || '',
       services: client.services || [],
@@ -269,6 +287,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
           type: '',
           pan: '',
           gstin: '',
+          tan: '',
+          cinLlpin: '',
+          portalUsername: '',
           email: '',
           phone: '',
           services: [],
@@ -483,6 +504,33 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               maxLength={15}
             />
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input
+                type="text"
+                placeholder="TAN (optional)"
+                className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white uppercase"
+                value={formData.tan}
+                onChange={(e) => setFormData({ ...formData, tan: e.target.value.toUpperCase() })}
+                maxLength={10}
+              />
+              <input
+                type="text"
+                placeholder="CIN / LLPIN (optional)"
+                className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white uppercase"
+                value={formData.cinLlpin}
+                onChange={(e) => setFormData({ ...formData, cinLlpin: e.target.value.toUpperCase() })}
+                maxLength={30}
+              />
+            </div>
+
+            <input
+              type="text"
+              placeholder="Portal username (optional, no password)"
+              className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
+              value={formData.portalUsername}
+              onChange={(e) => setFormData({ ...formData, portalUsername: e.target.value })}
+            />
+
             <input
               type="email"
               placeholder="Email"
@@ -586,6 +634,34 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               <input
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm text-slate-400 mb-2 block">TAN</label>
+                <input
+                  value={formData.tan}
+                  onChange={(e) => setFormData({ ...formData, tan: e.target.value.toUpperCase() })}
+                  className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full uppercase"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-slate-400 mb-2 block">CIN / LLPIN</label>
+                <input
+                  value={formData.cinLlpin}
+                  onChange={(e) => setFormData({ ...formData, cinLlpin: e.target.value.toUpperCase() })}
+                  className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full uppercase"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm text-slate-400 mb-2 block">Portal Username</label>
+              <input
+                value={formData.portalUsername}
+                onChange={(e) => setFormData({ ...formData, portalUsername: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
               />
             </div>

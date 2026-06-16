@@ -49,12 +49,15 @@ import {
   normalizeStatusForColumns,
   PRIORITY_COLORS,
 } from './task-board/constants';
+import { GOVERNMENT_PORTALS } from '../services/governmentPortalService';
 
 interface NewTaskForm {
   title: string;
   description: string;
   priority: TaskPriority;
   category: string;
+  portalType: string;
+  portalWorkflowType: string;
   deadline: string;
   clientId: string;
   assignedTo: string;
@@ -84,6 +87,8 @@ export const TaskBoard: React.FC = () => {
     description: '',
     priority: 'Medium',
     category: '',
+    portalType: '',
+    portalWorkflowType: '',
     deadline: '',
     clientId: '',
     assignedTo: '',
@@ -93,6 +98,8 @@ export const TaskBoard: React.FC = () => {
     description: '',
     priority: 'Medium',
     category: '',
+    portalType: '',
+    portalWorkflowType: '',
     deadline: '',
     clientId: '',
     assignedTo: '',
@@ -160,7 +167,9 @@ export const TaskBoard: React.FC = () => {
         title: formData.title,
         description: formData.description,
         priority: formData.priority,
-        category: formData.category as 'GST' | 'Income Tax' | 'Audit' | 'ROC' | 'TDS' | 'Other' | undefined,
+        category: formData.category as 'GST' | 'Income Tax' | 'Audit' | 'ROC' | 'MCA' | 'TDS' | 'Other' | undefined,
+        portalType: formData.portalType || undefined,
+        portalWorkflowType: formData.portalWorkflowType || undefined,
         deadline: formData.deadline || undefined,
         user,
       });
@@ -582,8 +591,47 @@ export const TaskBoard: React.FC = () => {
                     <option value="Income Tax">Income Tax</option>
                     <option value="Audit">Audit</option>
                     <option value="ROC">ROC</option>
+                    <option value="MCA">MCA</option>
                     <option value="TDS">TDS</option>
                     <option value="Other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-slate-400 mb-2 block">Government Portal</label>
+                  <select
+                    value={formData.portalType}
+                    onChange={(e) => {
+                      const portal = GOVERNMENT_PORTALS.find((item) => item.type === e.target.value);
+                      setFormData({
+                        ...formData,
+                        portalType: e.target.value,
+                        portalWorkflowType: portal?.workflowTypes[0] || '',
+                      });
+                    }}
+                    className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
+                  >
+                    <option value="">No portal link</option>
+                    {GOVERNMENT_PORTALS.map((portal) => (
+                      <option key={portal.type} value={portal.type}>{portal.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-sm text-slate-400 mb-2 block">Workflow Type</label>
+                  <select
+                    value={formData.portalWorkflowType}
+                    onChange={(e) => setFormData({ ...formData, portalWorkflowType: e.target.value })}
+                    className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
+                    disabled={!formData.portalType}
+                  >
+                    <option value="">Select workflow</option>
+                    {GOVERNMENT_PORTALS.find((portal) => portal.type === formData.portalType)?.workflowTypes.map((workflow) => (
+                      <option key={workflow} value={workflow}>{workflow}</option>
+                    ))}
                   </select>
                 </div>
               </div>

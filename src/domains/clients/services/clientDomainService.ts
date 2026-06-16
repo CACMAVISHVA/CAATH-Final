@@ -19,6 +19,10 @@ export type ClientInput = {
   type: string;
   pan: string;
   gstin?: string;
+  tan?: string;
+  cinLlpin?: string;
+  portalUsername?: string;
+  portalUsernames?: Record<string, string>;
   contactPerson?: string;
   email?: string;
   phone?: string;
@@ -36,6 +40,10 @@ export type ClientRow = {
   type: string;
   pan: string;
   gstin: string | null;
+  tan: string | null;
+  cin_llpin: string | null;
+  portal_username: string | null;
+  portal_usernames: Record<string, string> | null;
   contact_person: string | null;
   email: string | null;
   phone: string | null;
@@ -77,7 +85,7 @@ const writeAuditLog = async (params: { firmId: string; user: User; action: strin
   }) as any);
 };
 
-export const createClient = async ({ firmId, name, type, pan, gstin, contactPerson, email, phone, riskLevel = 'Low', services = [], assignedStaffId, user }: ClientInput) => {
+export const createClient = async ({ firmId, name, type, pan, gstin, tan, cinLlpin, portalUsername, portalUsernames, contactPerson, email, phone, riskLevel = 'Low', services = [], assignedStaffId, user }: ClientInput) => {
   if (!user.firmId) throw new Error('A firm workspace is required to create clients.');
 
   const panValidation = validatePAN(pan);
@@ -97,6 +105,10 @@ export const createClient = async ({ firmId, name, type, pan, gstin, contactPers
     type,
     pan: pan.toUpperCase(),
     gstin: gstin ? gstin.toUpperCase() : null,
+    tan: tan ? tan.toUpperCase() : null,
+    cin_llpin: cinLlpin ? cinLlpin.toUpperCase() : null,
+    portal_username: portalUsername || null,
+    portal_usernames: portalUsernames || {},
     contact_person: contactPerson,
     email,
     phone,
@@ -115,13 +127,17 @@ export const createClient = async ({ firmId, name, type, pan, gstin, contactPers
   return data;
 };
 
-export const updateClient = async (clientId: string, updates: Partial<{ name: string; type: string; contactPerson: string; email: string; phone: string; riskLevel: RiskLevel; services: string[]; assignedStaffId: string }>, user: User) => {
+export const updateClient = async (clientId: string, updates: Partial<{ name: string; type: string; tan: string; cinLlpin: string; portalUsername: string; portalUsernames: Record<string, string>; contactPerson: string; email: string; phone: string; riskLevel: RiskLevel; services: string[]; assignedStaffId: string }>, user: User) => {
   if (!user.firmId) throw new Error('A firm workspace is required.');
 
   const updateData: Record<string, unknown> = { ...updates, updated_by: user.id, updated_at: new Date().toISOString() };
   if (updates.contactPerson) updateData.contact_person = updates.contactPerson;
   if (updates.assignedStaffId) updateData.assigned_staff_id = updates.assignedStaffId;
   if (updates.riskLevel) updateData.risk_level = updates.riskLevel;
+  if (updates.tan !== undefined) updateData.tan = updates.tan ? updates.tan.toUpperCase() : null;
+  if (updates.cinLlpin !== undefined) updateData.cin_llpin = updates.cinLlpin ? updates.cinLlpin.toUpperCase() : null;
+  if (updates.portalUsername !== undefined) updateData.portal_username = updates.portalUsername || null;
+  if (updates.portalUsernames !== undefined) updateData.portal_usernames = updates.portalUsernames || {};
 
   await unwrapData(clientRepository.updateById(user.firmId, clientId, updateData) as any);
   await writeAuditLog({ firmId: user.firmId, user, action: 'Client Updated', entityType: 'Client', entityId: clientId, details: `Client ${clientId} updated.` });

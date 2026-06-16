@@ -65,7 +65,12 @@ export const PORTAL_CONFIG: Record<PortalType, { name: string; description: stri
   IncomeTax: {
     name: 'Income Tax Portal',
     description: 'Launch Income Tax websites and e-filing portals',
-    color: 'bg-violet-500',
+    color: 'bg-sky-500',
+  },
+  TRACES: {
+    name: 'TRACES Portal',
+    description: 'Open TRACES/TDS workflows without automating authentication',
+    color: 'bg-amber-500',
   },
   ICEGATE: {
     name: 'ICEGATE Portal',
