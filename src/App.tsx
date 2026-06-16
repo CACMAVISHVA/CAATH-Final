@@ -536,6 +536,35 @@ export default function App() {
     );
   }
 
+  if (session && !user) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-matte-black text-white p-6">
+        <div className="max-w-lg rounded-3xl border border-slate-800 bg-matte-black-light p-8 text-center shadow-2xl">
+          <ShieldCheck className="mx-auto h-12 w-12 text-gold" />
+          <h2 className="mt-5 text-2xl font-bold gold-text-gradient">Session Active</h2>
+          <p className="mt-3 text-sm text-slate-400">
+            Your authentication session is still valid, but CAATH could not finish loading the workspace profile. This can happen while optional enterprise modules or schema updates are unavailable.
+          </p>
+          {error && <p className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">{error}</p>}
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              onClick={refreshUser}
+              className="rounded-xl bg-gold px-4 py-2 text-sm font-bold text-black transition hover:bg-gold-light"
+            >
+              Retry Workspace Load
+            </button>
+            <button
+              onClick={handleLogout}
+              className="rounded-xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-200 transition hover:border-gold/50"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return <LoginScreen onLogin={handleLogin} onVerifyOtp={verifyEmailOtp} onResendOtp={resendEmailOtp} error={error} onSignupSuccess={refreshUser} />;
   }
