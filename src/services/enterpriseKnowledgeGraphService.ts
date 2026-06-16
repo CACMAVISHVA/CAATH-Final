@@ -62,11 +62,34 @@ export interface EnterpriseKnowledgeGraphSnapshot {
 
 const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
+const optionalRows = <T>(
+  result: PromiseSettledResult<{ data: T[] | null; error: unknown }>,
+  tableName: string,
+): T[] => {
+  if (result.status === 'rejected') {
+    if (tableName === 'enterprise_activities') {
+      console.warn('[AUTH] enterprise_activities missing', result.reason);
+    } else {
+      console.warn(`[AUTH] Optional knowledge graph input unavailable: ${tableName}`, result.reason);
+    }
+    return [];
+  }
+  if (result.value.error) {
+    if (tableName === 'enterprise_activities') {
+      console.warn('[AUTH] enterprise_activities missing', result.value.error);
+    } else {
+      console.warn(`[AUTH] Optional knowledge graph input unavailable: ${tableName}`, result.value.error);
+    }
+    return [];
+  }
+  return result.value.data || [];
+};
+
 export const getEnterpriseKnowledgeGraphSnapshot = async (
   firmId: string,
   user: User
 ): Promise<EnterpriseKnowledgeGraphSnapshot> => {
-  const [clientsRes, tasksRes, noticesRes, invoicesRes, approvalsRes, docsRes, usersRes, activitiesRes, payrollRes] = await Promise.all([
+  const [clientsRes, tasksRes, noticesRes, invoicesRes, approvalsRes, docsRes, usersRes, activitiesRes, payrollRes] = await Promise.allSettled([
     supabase.from('clients').select('id,name').eq('firm_id', firmId),
     supabase.from('tasks').select('id,title,status,client_id,assigned_to').eq('firm_id', firmId),
     supabase.from('notices').select('id,notice_number,status,client_id,assigned_to,deadline').eq('firm_id', firmId),
@@ -76,27 +99,17 @@ export const getEnterpriseKnowledgeGraphSnapshot = async (
     supabase.from('users').select('id,name,role').eq('firm_id', firmId),
     supabase.from('enterprise_activities').select('id,event_type,event_subtype,reference_id,reference_table,severity').eq('firm_id', firmId).order('created_at', { ascending: false }).limit(120),
     supabase.from('payroll_runs').select('id,payout_status,employee_user_id').eq('firm_id', firmId),
-  ]);
+  ].map((query) => query as PromiseLike<{ data: any[] | null; error: unknown }>));
 
-  if (clientsRes.error) throw clientsRes.error;
-  if (tasksRes.error) throw tasksRes.error;
-  if (noticesRes.error) throw noticesRes.error;
-  if (invoicesRes.error) throw invoicesRes.error;
-  if (approvalsRes.error) throw approvalsRes.error;
-  if (docsRes.error) throw docsRes.error;
-  if (usersRes.error) throw usersRes.error;
-  if (activitiesRes.error) throw activitiesRes.error;
-  if (payrollRes.error) throw payrollRes.error;
-
-  const clients = clientsRes.data || [];
-  const tasks = tasksRes.data || [];
-  const notices = noticesRes.data || [];
-  const invoices = invoicesRes.data || [];
-  const approvals = approvalsRes.data || [];
-  const documents = docsRes.data || [];
-  const users = usersRes.data || [];
-  const activities = activitiesRes.data || [];
-  const payrollRuns = payrollRes.data || [];
+  const clients = optionalRows(clientsRes, 'clients');
+  const tasks = optionalRows(tasksRes, 'tasks');
+  const notices = optionalRows(noticesRes, 'notices');
+  const invoices = optionalRows(invoicesRes, 'invoices');
+  const approvals = optionalRows(approvalsRes, 'approval_tasks');
+  const documents = optionalRows(docsRes, 'document_vault');
+  const users = optionalRows(usersRes, 'users');
+  const activities = optionalRows(activitiesRes, 'enterprise_activities');
+  const payrollRuns = optionalRows(payrollRes, 'payroll_runs');
 
   const nodes: KnowledgeNode[] = [];
   const edges: KnowledgeEdge[] = [];
@@ -247,4 +260,3 @@ export const getEnterpriseKnowledgeGraphSnapshot = async (
     contextChains,
   };
 };
-

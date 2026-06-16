@@ -5,6 +5,7 @@
 
 import { supabase } from '../lib/supabase';
 import { getWorkflowLifecycleIntegritySummary } from './workflowLifecycleIntegrityService';
+import { WorkflowIntegritySummary } from './workflowLifecycleIntegrityService';
 
 export interface DashboardMetrics {
   activeClients: number;
@@ -43,19 +44,46 @@ export interface ActivityItem {
   createdAt: string;
 }
 
+const emptyIntegritySummary: WorkflowIntegritySummary = {
+  generatedAt: new Date().toISOString(),
+  workflowHealthScore: 100,
+  operationalIntegrityScore: 100,
+  lifecycleReliabilityScore: 100,
+  counts: {
+    invalidTransitions: 0,
+    orphanWorkflows: 0,
+    brokenOwnershipChains: 0,
+    noticeTaskSyncFailures: 0,
+    approvalInconsistencies: 0,
+    billingContinuityGaps: 0,
+    stuckWorkflows: 0,
+    escalationLoops: 0,
+    reassignmentInstability: 0,
+    unresolvedApprovalClusters: 0,
+    overdueEscalationChains: 0,
+  },
+  findings: [],
+  recoverySuggestions: [],
+};
+
+const settledOrFallback = <T, F>(result: PromiseSettledResult<T>, fallback: F, label: string): T | F => {
+  if (result.status === 'fulfilled') return result.value;
+  console.warn(`[AUTH] Optional dashboard metric unavailable: ${label}`, result.reason);
+  return fallback;
+};
+
 export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetrics> => {
   const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
 
   const [
-    clientsResult,
-    approvalsResult,
-    tasksResult,
-    complianceResult,
-    billingResult,
-    noticesResult,
-    integrity,
-  ] = await Promise.all([
+    clientsSettled,
+    approvalsSettled,
+    tasksSettled,
+    complianceSettled,
+    billingSettled,
+    noticesSettled,
+    integritySettled,
+  ] = await Promise.allSettled([
     // Active clients count
     supabase
       .from('clients')
@@ -72,7 +100,7 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
     // Tasks metrics
     supabase
       .from('tasks')
-      .select('id, status, deadline', { count: 'exact' })
+      .select('id, status, deadline, assigned_to, client_id, updated_at', { count: 'exact' })
       .eq('firm_id', firmId),
 
     // Compliance tasks pending
@@ -96,7 +124,29 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
       .eq('firm_id', firmId)
       .in('status', ['Received', 'Assigned']),
     getWorkflowLifecycleIntegritySummary(firmId),
-  ]);
+  ] as const);
+
+  const clientsResult = settledOrFallback(clientsSettled, { data: [], count: 0, error: null }, 'clients');
+  const approvalsResult = settledOrFallback(approvalsSettled, { data: [], count: 0, error: null }, 'approval_tasks');
+  const tasksResult = settledOrFallback(tasksSettled, { data: [], count: 0, error: null }, 'tasks');
+  const complianceResult = settledOrFallback(complianceSettled, { data: [], count: 0, error: null }, 'compliance_tasks');
+  const billingResult = settledOrFallback(billingSettled, { data: [], count: 0, error: null }, 'billing');
+  const noticesResult = settledOrFallback(noticesSettled, { data: [], count: 0, error: null }, 'notices');
+  const integrity = settledOrFallback(integritySettled, emptyIntegritySummary, 'workflow lifecycle integrity');
+
+  [
+    ['clients', clientsResult],
+    ['approval_tasks', approvalsResult],
+    ['tasks', tasksResult],
+    ['compliance_tasks', complianceResult],
+    ['billing', billingResult],
+    ['notices', noticesResult],
+  ].forEach(([label, result]) => {
+    const error = (result as { error?: unknown }).error;
+    if (error) {
+      console.warn(`[AUTH] Optional dashboard metric unavailable: ${label}`, error);
+    }
+  });
 
   // Calculate overdue tasks
   const allTasks = (tasksResult.data || []) as any[];
@@ -147,6 +197,8 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
 
     if (!reassignmentError && reassignmentData) {
       reassignmentEvents = reassignmentData.length;
+    } else if (reassignmentError) {
+      console.warn('[AUTH] Optional dashboard metric unavailable: task_reassignments', reassignmentError);
     }
   } catch (error) {
     console.warn('Failed to load reassignment event metrics:', error);

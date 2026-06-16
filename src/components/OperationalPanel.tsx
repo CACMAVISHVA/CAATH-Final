@@ -13,6 +13,10 @@ import { operationsCenterOrchestrator, OperationsCenterSnapshot, GovernedOperati
 import { predictiveOperationsCenterOrchestrator, PredictiveOperationsCenterSnapshot } from '../domains/predictive-operations-center';
 import { predictiveOperationsOrchestrator } from '../domains/predictive-operations';
 
+const warnOptionalPanelModule = (label: string, reason: unknown) => {
+  console.warn(`[AUTH] Optional operational panel module unavailable: ${label}`, reason);
+};
+
 const OperationalPanel: React.FC = () => {
   const { user } = useAuth();
   const [metrics, setMetrics] = useState<any>(null);
@@ -32,32 +36,50 @@ const OperationalPanel: React.FC = () => {
     if (!firmId) return;
 
     (async () => {
-      try {
-        const [m, health, rel, command, financialSnapshot, orchestrationSnapshot, integrationSnapshot, executiveSnapshot] = await Promise.all([
-          getDashboardMetrics(firmId),
-          getOperationalHealthSummary(firmId),
-          getEnterpriseRelationshipSnapshot(firmId, user!),
-          getRoleAwareCommandCenterSnapshot(user!),
-          user?.role === 'SuperAdmin' ? getEnterpriseFinancialIntelligenceSnapshot(firmId, user!) : Promise.resolve(null),
-          getEnterpriseOrchestrationSnapshot(user!),
-          getIntegrationHealthSnapshot(user!),
-          getExecutiveDecisionSnapshot(user!),
-        ]);
-        const opsCenter = await operationsCenterOrchestrator.getSnapshot(user!);
-        const predictive = await predictiveOperationsCenterOrchestrator.getSnapshot(user!);
-        setMetrics(m);
-        setIntelligence(health);
-        setRelationships(rel);
-        setCommandCenter(command);
-        setFinancial(financialSnapshot);
-        setOrchestration(orchestrationSnapshot);
-        setIntegration(integrationSnapshot);
-        setExecutiveSynthesis(executiveSnapshot);
-        setOperationsCenter(opsCenter);
-        setPredictiveCenter(predictive);
-      } catch (err) {
-        console.error(err);
-      }
+      const [
+        metricsResult,
+        healthResult,
+        relationshipsResult,
+        commandResult,
+        financialResult,
+        orchestrationResult,
+        integrationResult,
+        executiveResult,
+        opsCenterResult,
+        predictiveResult,
+      ] = await Promise.allSettled([
+        getDashboardMetrics(firmId),
+        getOperationalHealthSummary(firmId),
+        getEnterpriseRelationshipSnapshot(firmId, user!),
+        getRoleAwareCommandCenterSnapshot(user!),
+        user?.role === 'SuperAdmin' ? getEnterpriseFinancialIntelligenceSnapshot(firmId, user!) : Promise.resolve(null),
+        getEnterpriseOrchestrationSnapshot(user!),
+        getIntegrationHealthSnapshot(user!),
+        getExecutiveDecisionSnapshot(user!),
+        operationsCenterOrchestrator.getSnapshot(user!),
+        predictiveOperationsCenterOrchestrator.getSnapshot(user!),
+      ] as const);
+
+      if (metricsResult.status === 'fulfilled') setMetrics(metricsResult.value);
+      else warnOptionalPanelModule('metrics', metricsResult.reason);
+      if (healthResult.status === 'fulfilled') setIntelligence(healthResult.value);
+      else warnOptionalPanelModule('operational health', healthResult.reason);
+      if (relationshipsResult.status === 'fulfilled') setRelationships(relationshipsResult.value);
+      else warnOptionalPanelModule('enterprise relationships', relationshipsResult.reason);
+      if (commandResult.status === 'fulfilled') setCommandCenter(commandResult.value);
+      else warnOptionalPanelModule('role-aware command center', commandResult.reason);
+      if (financialResult.status === 'fulfilled') setFinancial(financialResult.value);
+      else warnOptionalPanelModule('enterprise financial intelligence', financialResult.reason);
+      if (orchestrationResult.status === 'fulfilled') setOrchestration(orchestrationResult.value);
+      else warnOptionalPanelModule('enterprise orchestration', orchestrationResult.reason);
+      if (integrationResult.status === 'fulfilled') setIntegration(integrationResult.value);
+      else warnOptionalPanelModule('integration health', integrationResult.reason);
+      if (executiveResult.status === 'fulfilled') setExecutiveSynthesis(executiveResult.value);
+      else warnOptionalPanelModule('executive decision intelligence', executiveResult.reason);
+      if (opsCenterResult.status === 'fulfilled') setOperationsCenter(opsCenterResult.value);
+      else warnOptionalPanelModule('operations center', opsCenterResult.reason);
+      if (predictiveResult.status === 'fulfilled') setPredictiveCenter(predictiveResult.value);
+      else warnOptionalPanelModule('predictive operations center', predictiveResult.reason);
     })();
   }, [user?.firmId]);
 

@@ -217,6 +217,7 @@ export default function App() {
   }, [onboardingCompleted, user?.id]);
 
   const handleLogout = useCallback(async () => {
+    console.warn('[AUTH] Logout requested by src/App.tsx:220');
     await logout();
     setActiveTab('dashboard');
     navigate('/');

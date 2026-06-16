@@ -4,11 +4,15 @@ import { IAuthRepository } from '../../../infrastructure/repositories/interfaces
 
 export class SupabaseAuthRepository implements IAuthRepository {
   async signIn(email: string, password: string): Promise<void> {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    if (data.session) {
+      console.info('[AUTH] Session created', { userId: data.session.user.id });
+    }
   }
 
   async signOut(): Promise<void> {
+    console.warn('[AUTH] Logout requested by src/domains/auth/repositories/SupabaseAuthRepository.ts:12');
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   }
@@ -42,7 +46,12 @@ export class SupabaseAuthRepository implements IAuthRepository {
   }
 
   onAuthStateChange(handler: (session: Session | null) => void): () => void {
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => handler(session));
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        console.info('[AUTH] Session created', { event, userId: session.user.id });
+      }
+      handler(session);
+    });
     return () => data.subscription.unsubscribe();
   }
 }

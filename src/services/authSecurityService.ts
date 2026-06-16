@@ -261,6 +261,7 @@ export const authSecurityService = {
       created_at: new Date().toISOString(),
     }]);
     if (error) {
+      console.warn('[AUTH] login_activity unavailable', error);
       console.warn('Unable to record login activity', error);
     }
   },

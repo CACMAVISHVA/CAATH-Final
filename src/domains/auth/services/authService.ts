@@ -34,6 +34,7 @@ export const authService = {
           otpStatus: 'Pending',
           details: { otpRequired: true },
         });
+        console.warn('[AUTH] Logout requested by src/domains/auth/services/authService.ts:37 (OTP required after password login)');
         await authRepository.signOut();
         await authSecurityService.sendEmailOtp(request.email.trim(), settings, profile);
         await auditAuthEvent('otp_generated', profile.id, { timestamp: new Date().toISOString(), channel: 'email' });
@@ -132,6 +133,7 @@ export const authService = {
 
   async logout(userId?: string): Promise<void> {
     await performSecureLogout(async () => {
+      console.warn('[AUTH] Logout requested by src/domains/auth/services/authService.ts:135 (explicit logout)');
       await authRepository.signOut();
     });
     await auditAuthEvent('logout', userId, { timestamp: new Date().toISOString() });

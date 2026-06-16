@@ -37,6 +37,38 @@ import {
 import { EnterpriseCognitiveDashboardPanel } from './EnterpriseCognitiveDashboardPanel';
 const DashboardCharts = lazy(() => import('./DashboardCharts'));
 
+const emptyMetrics: DashboardMetrics = {
+  activeClients: 0,
+  pendingApprovals: 0,
+  overdueTasks: 0,
+  filingCount: 0,
+  revenue: 0,
+  noticesPending: 0,
+  totalTasks: 0,
+  completedTasks: 0,
+  inProgressTasks: 0,
+  rejectedItems: 0,
+  escalationAlerts: 0,
+  overloadedStaff: 0,
+  reassignmentEvents: 0,
+  pendingWorkloads: 0,
+  bottleneckTasks: 0,
+  stalledApprovals: 0,
+  overdueClusters: 0,
+  ignoredEscalations: 0,
+  noticeBacklogs: 0,
+  orphanWorkflowCount: 0,
+  noticeTaskSyncFailures: 0,
+  billingContinuityGaps: 0,
+  integrityHealthScore: 100,
+};
+
+const optionalResult = <T, F>(result: PromiseSettledResult<T>, fallback: F, label: string): T | F => {
+  if (result.status === 'fulfilled') return result.value;
+  console.warn(`[AUTH] Optional dashboard module unavailable: ${label}`, result.reason);
+  return fallback;
+};
+
 export const Dashboard: React.FC = () => {
   const { user, session } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
@@ -53,26 +85,41 @@ export const Dashboard: React.FC = () => {
 
     setLoading(true);
     try {
-      const [metricsData, activityData, gstSummaryData, revenueData, governanceData] = await Promise.all([
+      console.info('[AUTH] Dashboard bootstrap started', { firmId: user.firmId });
+      const [metricsData, activityData, gstSummaryData, revenueData, governanceData] = await Promise.allSettled([
         getDashboardMetrics(user.firmId),
         getRecentActivity(user.firmId, 10),
         getGSTDashboardSummary(user.firmId),
         getRevenueIntelligenceSnapshot(user.firmId),
         getServiceBoundaryGovernanceReport(),
-      ]);
-      setMetrics(metricsData);
-      setActivity(activityData);
-      setGstSummary(gstSummaryData);
-      setRevenueSnapshot(revenueData);
-      setGovernanceReport(governanceData);
-      const cognitiveInput = buildCognitiveInput(user.firmId, metricsData, gstSummaryData);
-      const cognitiveOutput = enterpriseCognitionOrchestrator.evaluate(cognitiveInput);
-      setCognitiveViewModel(
-        enterpriseCognitiveDashboardOrchestrator.toViewModel({ cognitiveOutput }),
-      );
+      ] as const);
+      const safeMetrics = optionalResult(metricsData, emptyMetrics, 'metrics');
+      const safeActivity = optionalResult(activityData, [], 'recent activity');
+      const safeGstSummary = optionalResult(gstSummaryData, null, 'GST summary');
+      const safeRevenue = optionalResult(revenueData, null, 'revenue intelligence');
+      const safeGovernance = optionalResult(governanceData, null, 'service boundary governance');
+      setMetrics(safeMetrics);
+      setActivity(safeActivity);
+      setGstSummary(safeGstSummary);
+      setRevenueSnapshot(safeRevenue);
+      setGovernanceReport(safeGovernance);
+      if (safeGstSummary) {
+        const cognitiveInput = buildCognitiveInput(user.firmId, safeMetrics, safeGstSummary);
+        const cognitiveOutput = enterpriseCognitionOrchestrator.evaluate(cognitiveInput);
+        setCognitiveViewModel(
+          enterpriseCognitiveDashboardOrchestrator.toViewModel({ cognitiveOutput }),
+        );
+      } else {
+        setCognitiveViewModel(null);
+      }
       if (user) {
-        const aiData = await aiOperationsOrchestrator.getDashboardIntelligence(user);
-        setAiIntelligence(aiData);
+        try {
+          const aiData = await aiOperationsOrchestrator.getDashboardIntelligence(user);
+          setAiIntelligence(aiData);
+        } catch (aiError) {
+          console.warn('[AUTH] Optional dashboard module unavailable: AI operations intelligence', aiError);
+          setAiIntelligence(null);
+        }
       }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
@@ -90,8 +137,12 @@ export const Dashboard: React.FC = () => {
       if (!user) return;
       const dayKey = `caath:aiops:nudges:${user.id}:${new Date().toISOString().slice(0, 10)}`;
       if (window.localStorage.getItem(dayKey)) return;
-      await aiOperationsOrchestrator.dispatchOperationalNudges(user);
-      window.localStorage.setItem(dayKey, 'true');
+      try {
+        await aiOperationsOrchestrator.dispatchOperationalNudges(user);
+        window.localStorage.setItem(dayKey, 'true');
+      } catch (error) {
+        console.warn('[AUTH] Optional dashboard module unavailable: AI operational nudges', error);
+      }
     };
     dispatchNudges();
   }, [user]);
@@ -100,7 +151,11 @@ export const Dashboard: React.FC = () => {
     const onQuickAction = async (event: Event) => {
       const custom = event as CustomEvent<{ action?: string }>;
       if (!user || custom.detail?.action !== 'dispatch-ai-nudges') return;
-      await aiOperationsOrchestrator.dispatchOperationalNudges(user);
+      try {
+        await aiOperationsOrchestrator.dispatchOperationalNudges(user);
+      } catch (error) {
+        console.warn('[AUTH] Optional dashboard module unavailable: AI operational nudges', error);
+      }
       await loadDashboardData();
     };
     window.addEventListener('caath:quick-action', onQuickAction);

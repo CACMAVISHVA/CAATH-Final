@@ -80,6 +80,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         nextSession = await authService.getSession();
+        if (nextSession) {
+          console.info('[AUTH] Session created', { source: 'src/context/AuthContext.tsx:78', userId: nextSession.user.id });
+        }
         if (!mounted) return;
 
         if (nextSession?.expires_at && !authService.isSessionActive(nextSession.expires_at)) {
@@ -107,6 +110,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initializeAuth();
 
     const unsubscribe = authService.onAuthStateChange((nextSession) => {
+      if (nextSession) {
+        console.info('[AUTH] Session created', { source: 'src/context/AuthContext.tsx:109', userId: nextSession.user.id });
+      }
       if (nextSession?.expires_at && !authService.isSessionActive(nextSession.expires_at)) {
         setSession(null);
         setUser(null);
@@ -192,6 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = useCallback(async () => {
     setError(null);
     try {
+      console.warn('[AUTH] Logout requested by src/context/AuthContext.tsx:195');
       await authService.logout(user?.id);
       setSession(null);
       setUser(null);
