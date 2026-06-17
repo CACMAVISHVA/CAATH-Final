@@ -9,7 +9,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE IF NOT EXISTS public.auth_security_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   firm_id uuid UNIQUE REFERENCES public.firms(id) ON DELETE CASCADE,
-  otp_enabled boolean NOT NULL DEFAULT true,
+  otp_enabled boolean NOT NULL DEFAULT false,
   otp_requirement_mode text NOT NULL DEFAULT 'admins',
   otp_expiry_minutes integer NOT NULL DEFAULT 5,
   otp_attempt_limit integer NOT NULL DEFAULT 5,
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS public.auth_sessions (
 ALTER TABLE public.auth_security_settings
   ADD COLUMN IF NOT EXISTS id uuid DEFAULT gen_random_uuid(),
   ADD COLUMN IF NOT EXISTS firm_id uuid,
-  ADD COLUMN IF NOT EXISTS otp_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS otp_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS otp_requirement_mode text NOT NULL DEFAULT 'admins',
   ADD COLUMN IF NOT EXISTS otp_expiry_minutes integer NOT NULL DEFAULT 5,
   ADD COLUMN IF NOT EXISTS otp_attempt_limit integer NOT NULL DEFAULT 5,

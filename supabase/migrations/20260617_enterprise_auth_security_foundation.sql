@@ -10,7 +10,7 @@ ALTER TABLE public.firms
 CREATE TABLE IF NOT EXISTS public.auth_security_settings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   firm_id uuid UNIQUE REFERENCES public.firms(id) ON DELETE CASCADE,
-  otp_enabled boolean NOT NULL DEFAULT true,
+  otp_enabled boolean NOT NULL DEFAULT false,
   otp_requirement_mode text NOT NULL DEFAULT 'admins' CHECK (otp_requirement_mode IN ('admins', 'staff', 'all')),
   otp_expiry_minutes integer NOT NULL DEFAULT 5 CHECK (otp_expiry_minutes BETWEEN 1 AND 30),
   otp_attempt_limit integer NOT NULL DEFAULT 5 CHECK (otp_attempt_limit BETWEEN 1 AND 10),

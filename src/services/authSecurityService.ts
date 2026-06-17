@@ -19,6 +19,8 @@ export type AuthSecuritySettings = {
   rememberMeSessionDays: number;
 };
 
+const EMAIL_OTP_DELIVERY_ENABLED = import.meta.env.VITE_CAATH_EMAIL_OTP_ENABLED === 'true';
+
 export type LoginActivityEvent = {
   firmId?: string | null;
   userId?: string | null;
@@ -43,7 +45,7 @@ export type LoginActivityEvent = {
 
 const DEFAULT_SECURITY_SETTINGS: AuthSecuritySettings = {
   firmId: null,
-  otpEnabled: true,
+  otpEnabled: false,
   otpRequirementMode: 'admins',
   otpExpiryMinutes: 5,
   otpAttemptLimit: 5,
@@ -135,6 +137,7 @@ export const authSecurityService = {
   },
 
   requiresOtp(user: User, settings: AuthSecuritySettings) {
+    if (!EMAIL_OTP_DELIVERY_ENABLED) return false;
     if (!settings.otpEnabled) return false;
     if (settings.otpRequirementMode === 'all') return true;
     if (settings.otpRequirementMode === 'staff') return user.role !== 'Client';
@@ -142,6 +145,10 @@ export const authSecurityService = {
   },
 
   async sendEmailOtp(email: string, settings: AuthSecuritySettings, user?: User | null) {
+    if (!EMAIL_OTP_DELIVERY_ENABLED) {
+      throw new Error('Email OTP delivery is not enabled for this deployment.');
+    }
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {

@@ -34,10 +34,10 @@ export const authService = {
           otpStatus: 'Pending',
           details: { otpRequired: true },
         });
-        console.warn('[AUTH] Logout requested by src/domains/auth/services/authService.ts:37 (OTP required after password login)');
-        await authRepository.signOut();
         await authSecurityService.sendEmailOtp(request.email.trim(), settings, profile);
         await auditAuthEvent('otp_generated', profile.id, { timestamp: new Date().toISOString(), channel: 'email' });
+        console.warn('[AUTH] Logout requested by src/domains/auth/services/authService.ts:40 (OTP delivery initialized after password login)');
+        await authRepository.signOut();
         return { requiresOtp: true, email: request.email.trim() };
       }
 
