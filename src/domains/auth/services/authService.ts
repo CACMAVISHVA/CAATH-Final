@@ -1,18 +1,12 @@
 import { normalizeAuthError } from '../../../lib/authErrorNormalizer';
 import { auditAuthEvent, enforceLoginRateLimit, isSessionValid, performSecureLogout } from '../../../lib/authSecurityUtils';
-import { UserRole } from '../../../types';
 import { LoginRequestDto } from '../dto/authDtos';
 import { SupabaseAuthRepository } from '../repositories/SupabaseAuthRepository';
 import { authProfileRepository } from '../repositories/SupabaseAuthProfileRepository';
 import { authSecurityService } from '../../../services/authSecurityService';
 
 const authRepository = new SupabaseAuthRepository();
-
-const resolveSafeRequestedRole = (role: unknown): UserRole | null => {
-  if (role === 'Client') return 'Client';
-  if (role === 'SuperAdmin') return 'SuperAdmin';
-  return null;
-};
+export const PROFILE_SETUP_INCOMPLETE_MESSAGE = 'Profile not found. Workspace setup incomplete.';
 
 export const authService = {
   async login(request: LoginRequestDto): Promise<{ requiresOtp: boolean; email?: string }> {
@@ -54,6 +48,17 @@ export const authService = {
       await auditAuthEvent('login', profile?.id, { timestamp: new Date().toISOString() });
       return { requiresOtp: false };
     } catch (error) {
+      if (error instanceof Error && error.message === PROFILE_SETUP_INCOMPLETE_MESSAGE) {
+        await authSecurityService.recordLoginActivity({
+          email: request.email.trim(),
+          status: 'Failure',
+          eventType: 'password_login',
+          otpStatus: 'Not Required',
+          details: { errorCode: 'PROFILE_NOT_FOUND' },
+        });
+        await auditAuthEvent('failed_login', undefined, { errorCode: 'PROFILE_NOT_FOUND', timestamp: new Date().toISOString() });
+        throw error;
+      }
       const safeError = normalizeAuthError(error);
       await authSecurityService.recordLoginActivity({
         email: request.email.trim(),
@@ -182,30 +187,6 @@ export const authService = {
     if (!session) return null;
     const existing = await authProfileRepository.findByAuthId(session.user.id);
     if (existing) return existing;
-
-    const metadata = session.user.user_metadata || {};
-    const role = resolveSafeRequestedRole(metadata.requested_role);
-    if (!role) {
-      throw new Error('Your CAATH user profile has not been provisioned. Please contact your workspace administrator.');
-    }
-    const name = typeof metadata.full_name === 'string' && metadata.full_name.trim().length > 0
-      ? metadata.full_name.trim()
-      : (session.user.email?.split('@')[0] || 'New User');
-    const firmId = typeof metadata.requested_firm_id === 'string' && metadata.requested_firm_id.trim().length > 0
-      ? metadata.requested_firm_id.trim()
-      : null;
-
-    if (!firmId) {
-      throw new Error('Your workspace profile is incomplete. Please contact support.');
-    }
-
-    return authProfileRepository.createProfile({
-      authId: session.user.id,
-      email: session.user.email || '',
-      name,
-      role,
-      firmId,
-      isWorkspaceOwner: metadata.is_workspace_owner === true,
-    });
+    throw new Error(PROFILE_SETUP_INCOMPLETE_MESSAGE);
   },
 };

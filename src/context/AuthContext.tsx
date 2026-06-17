@@ -9,7 +9,7 @@ import { getPermissions, PermissionSet } from '../lib/permissions';
 import { User, UserRole } from '../types';
 import { normalizeAuthError } from '../lib/authErrorNormalizer';
 import { auditAuthEvent } from '../lib/authSecurityUtils';
-import { authService } from '../domains/auth/services/authService';
+import { authService, PROFILE_SETUP_INCOMPLETE_MESSAGE } from '../domains/auth/services/authService';
 
 type AuthContextValue = {
   session: Session | null;
@@ -50,7 +50,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const profile = await authService.resolveUserProfile(activeSession);
     if (!profile) {
       setUser(null);
-      return;
+      throw new Error(PROFILE_SETUP_INCOMPLETE_MESSAGE);
     }
 
     if (profile.status && profile.status.toLowerCase() !== 'active') {
@@ -97,8 +97,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await loadUserProfile(nextSession);
       } catch (sessionError) {
         if (mounted) {
-          const safeError = normalizeAuthError(sessionError);
-          setError(safeError.userMessage);
+          setError(sessionError instanceof Error && sessionError.message === PROFILE_SETUP_INCOMPLETE_MESSAGE
+            ? PROFILE_SETUP_INCOMPLETE_MESSAGE
+            : normalizeAuthError(sessionError).userMessage);
           setSession(nextSession);
           setUser(null);
         }
@@ -126,8 +127,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       loadUserProfile(nextSession)
         .catch((profileError) => {
-          const safeError = normalizeAuthError(profileError);
-          setError(safeError.userMessage);
+          setError(profileError instanceof Error && profileError.message === PROFILE_SETUP_INCOMPLETE_MESSAGE
+            ? PROFILE_SETUP_INCOMPLETE_MESSAGE
+            : normalizeAuthError(profileError).userMessage);
         })
         .finally(() => setIsLoading(false));
     });

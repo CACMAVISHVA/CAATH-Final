@@ -176,6 +176,11 @@ export const createWorkspaceOwnerAccount = async ({
   if (!authUser) {
     throw new Error('Supabase did not return an authenticated user for workspace registration.');
   }
+  console.info('[AUTH] Workspace signup created auth user', {
+    authUserId: authUser.id,
+    email: cleanEmail,
+    role: 'SuperAdmin',
+  });
 
   if (!signupData.session) {
     const { error: loginError } = await supabase.auth.signInWithPassword({ email: cleanEmail, password: password.trim() });
@@ -232,6 +237,13 @@ export const createWorkspaceOwnerAccount = async ({
   console.info('[AUTH] Workspace owner profile created', {
     ...profileInsertLog,
     firm_id: bootstrap.firm_id,
+    user_id: bootstrap.user_id,
+  });
+  console.info('[AUTH] Workspace owner profile insert response', {
+    auth_id: authUser.id,
+    email: cleanEmail,
+    firm_id: bootstrap.firm_id,
+    role: 'SuperAdmin',
     user_id: bootstrap.user_id,
   });
 

@@ -531,6 +531,7 @@ DECLARE
   v_auth_email text;
   v_firm_id uuid := gen_random_uuid();
   v_user_id uuid := gen_random_uuid();
+  v_subscription_amount numeric := 0;
   v_workspace_base text;
   v_workspace_code text;
 BEGIN
@@ -564,6 +565,11 @@ BEGIN
     v_workspace_base := 'CAATH';
   END IF;
   v_workspace_code := v_workspace_base || '-' || substr(v_firm_id::text, 1, 5);
+  v_subscription_amount := CASE p_subscription_plan
+    WHEN 'Professional' THEN 4999
+    WHEN 'Enterprise' THEN 14999
+    ELSE 0
+  END;
 
   RAISE LOG '[AUTH] create_workspace_owner inserting auth_id=%, email=%, role=SuperAdmin, status=Active, firm_id=%',
     v_auth_id, p_email, v_firm_id;
@@ -598,6 +604,42 @@ BEGIN
     p_max_clients,
     v_auth_id,
     v_auth_id
+  );
+
+  INSERT INTO public.subscriptions (
+    firm_id,
+    plan,
+    status,
+    amount,
+    billing_cycle,
+    trial_ends_at,
+    starts_at,
+    expires_at,
+    features,
+    created_by,
+    updated_by
+  ) VALUES (
+    v_firm_id,
+    p_subscription_plan,
+    'Pending',
+    v_subscription_amount,
+    'Monthly',
+    p_subscription_expiry_date,
+    p_subscription_start_date,
+    p_subscription_expiry_date,
+    jsonb_build_object(
+      'clients', true,
+      'documents', true,
+      'compliance', true,
+      'notices', true,
+      'billing', true,
+      'audit_logs', true,
+      'automation', p_subscription_plan IN ('Professional', 'Enterprise'),
+      'api_access', p_subscription_plan = 'Enterprise',
+      'white_label', false
+    ),
+    null,
+    null
   );
 
   INSERT INTO public.users (

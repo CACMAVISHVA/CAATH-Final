@@ -543,7 +543,7 @@ export default function App() {
           <ShieldCheck className="mx-auto h-12 w-12 text-gold" />
           <h2 className="mt-5 text-2xl font-bold gold-text-gradient">Session Active</h2>
           <p className="mt-3 text-sm text-slate-400">
-            Your authentication session is still valid, but CAATH could not finish loading the workspace profile. This can happen while optional enterprise modules or schema updates are unavailable.
+            Your authentication session is still valid, but CAATH could not find the linked workspace profile row in public.users.
           </p>
           {error && <p className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">{error}</p>}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
