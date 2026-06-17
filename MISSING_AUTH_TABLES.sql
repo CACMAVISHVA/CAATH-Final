@@ -885,15 +885,15 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT
-    public.get_subscription_status(p_firm_id) = 'Active'
+    lower(trim(public.get_subscription_status(p_firm_id))) = 'active'
     OR (
-      public.get_subscription_status(p_firm_id) = 'Trial'
+      lower(trim(public.get_subscription_status(p_firm_id))) = 'trial'
       AND COALESCE(
         (SELECT f.subscription_expiry_date FROM public.firms f WHERE f.id = p_firm_id LIMIT 1),
         now()
       ) >= now()
     )
-    OR p_feature IN ('dashboard', 'billing', 'subscription', 'profile', 'firm-profile')
+    OR lower(trim(p_feature)) IN ('dashboard', 'billing', 'subscription', 'profile', 'firm-profile')
 $$;
 
 CREATE OR REPLACE FUNCTION public.get_remaining_limits(p_firm_id uuid DEFAULT public.current_user_firm_id())

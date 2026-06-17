@@ -21,8 +21,15 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT
-    public.get_subscription_status(p_firm_id) = 'Active'
-    OR p_feature IN ('dashboard', 'billing', 'subscription')
+    lower(trim(public.get_subscription_status(p_firm_id))) = 'active'
+    OR (
+      lower(trim(public.get_subscription_status(p_firm_id))) = 'trial'
+      AND COALESCE(
+        (SELECT f.subscription_expiry_date FROM public.firms f WHERE f.id = p_firm_id LIMIT 1),
+        now()
+      ) >= now()
+    )
+    OR lower(trim(p_feature)) IN ('dashboard', 'billing', 'subscription', 'profile', 'firm-profile')
 $$;
 
 CREATE OR REPLACE FUNCTION public.get_remaining_limits(p_firm_id uuid DEFAULT public.current_user_firm_id())
@@ -42,7 +49,7 @@ AS $$
   ),
   usage AS (
     SELECT
-      COUNT(*) FILTER (WHERE role = 'Admin' AND status = 'Active')::integer AS admin_count,
+      COUNT(*) FILTER (WHERE role IN ('SuperAdmin', 'Admin') AND status = 'Active')::integer AS admin_count,
       COUNT(*) FILTER (WHERE role = 'Staff' AND status = 'Active')::integer AS staff_count
     FROM public.users
     WHERE firm_id = p_firm_id

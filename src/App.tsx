@@ -342,6 +342,10 @@ export default function App() {
   };
 
   const renderContent = () => {
+    if (user && activeTab === 'subscription') {
+      return <ProtectedRoute roles={['GodAdmin', 'SuperAdmin']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
+    }
+
     if (!user || !canAccessTab(user, activeTab)) {
       return <ProtectedRoute roles={[]}><Dashboard /></ProtectedRoute>;
     }
@@ -349,10 +353,6 @@ export default function App() {
     const subscriptionAllowedTabs = ['dashboard', 'billing', 'subscription', 'firm-profile', 'workspace-settings'];
     if (subscriptionLocked && !subscriptionAllowedTabs.includes(activeTab)) {
       return <LockedModuleOverlay onActivate={openSubscriptionPage} />;
-    }
-
-    if (activeTab === 'subscription') {
-      return <ProtectedRoute roles={['GodAdmin', 'SuperAdmin']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
     }
 
     if (user.role === 'GodAdmin') {

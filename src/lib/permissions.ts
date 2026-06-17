@@ -90,6 +90,7 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'ai',
     'payroll',
     'billing',
+    'subscription',
     'user-management',
     'login-activity',
     'auditlog',

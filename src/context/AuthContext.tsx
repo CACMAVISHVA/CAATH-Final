@@ -30,21 +30,25 @@ export type UserMetadata = User;
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const isWorkspaceSubscriptionLocked = (user: User | null): boolean => {
+  if (!user || user.role === 'GodAdmin') return false;
+  const status = user.firm?.subscriptionStatus?.trim().toLowerCase();
+  if (!status || status === 'active') return false;
+  if (status === 'trial') {
+    const expiry = user.firm?.subscriptionExpiryDate;
+    if (!expiry) return false;
+    const expiryTime = new Date(expiry).getTime();
+    return Number.isFinite(expiryTime) && expiryTime < Date.now();
+  }
+  return true;
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const subscriptionLocked = useMemo(() => {
-    if (!user || user.role === 'GodAdmin') return false;
-    const status = user.firm?.subscriptionStatus;
-    if (!status || status === 'Active') return false;
-    if (status === 'Trial') {
-      const expiry = user.firm?.subscriptionExpiryDate;
-      return Boolean(expiry && new Date(expiry) < new Date());
-    }
-    return true;
-  }, [user]);
+  const subscriptionLocked = useMemo(() => isWorkspaceSubscriptionLocked(user), [user]);
 
   const loadUserProfile = useCallback(async (activeSession: Session | null) => {
     if (!activeSession) {
