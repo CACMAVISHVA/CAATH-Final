@@ -32,7 +32,7 @@ import { getUserFullName, getUserDisplayRole } from './lib/userHelpers';
 import { formatWorkspaceAlias } from './lib/tenantIdentity';
 import { ROLE_ACCESS, ROLE_HOME, canAccessTab } from './lib/permissions';
 import { supabase } from './lib/supabase';
-import { createWorkspaceOwnerAccount } from './services/accountOnboardingService';
+import { createWorkspaceOwnerAccount, getWorkspaceOnboardingErrorMessage, WorkspaceOnboardingError } from './services/accountOnboardingService';
 import { ProtectedRoute } from './routes/ProtectedRoute';
 import { DashboardLoader } from './components/loaders/DashboardLoader';
 import { PageLoader } from './components/loaders/PageLoader';
@@ -1047,7 +1047,9 @@ const LoginScreen: React.FC<{
         });
         await onSignupSuccess();
       } catch (signupError) {
-        setLocalError(normalizeAuthError(signupError).userMessage);
+        setLocalError(signupError instanceof WorkspaceOnboardingError
+          ? getWorkspaceOnboardingErrorMessage(signupError)
+          : normalizeAuthError(signupError).userMessage);
         setIsLoading(false);
         return;
       }

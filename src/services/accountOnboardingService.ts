@@ -24,19 +24,22 @@ export type WorkspaceRegistrationInput = {
   subscriptionPlan: WorkspaceSubscriptionPlan;
 };
 
+export class WorkspaceOnboardingError extends Error {
+  readonly step: string;
+  readonly details?: string;
+
+  constructor(step: string, message: string, details?: string) {
+    super(message);
+    this.name = 'WorkspaceOnboardingError';
+    this.step = step;
+    this.details = details;
+  }
+}
+
 const PLAN_LIMITS: Record<WorkspaceSubscriptionPlan, { maxAdmins: number; maxStaff: number; maxClients: number }> = {
   Starter: { maxAdmins: 1, maxStaff: 3, maxClients: 25 },
   Professional: { maxAdmins: 3, maxStaff: 15, maxClients: 100 },
   Enterprise: { maxAdmins: 10, maxStaff: 100, maxClients: 1000 },
-};
-
-const createWorkspaceCode = (firmName: string) => {
-  const base = firmName
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '')
-    .slice(0, 8) || 'CAATH';
-  return `${base}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 };
 
 const canCreateRole = (actorRole: UserRole | null, targetRole: UserRole) => {
@@ -56,6 +59,25 @@ const canCreateRole = (actorRole: UserRole | null, targetRole: UserRole) => {
     return targetRole === 'Client';
   }
   return false;
+};
+
+const describeSupabaseError = (error: unknown) => {
+  if (!error || typeof error !== 'object') return String(error ?? 'Unknown error');
+  const candidate = error as { message?: string; details?: string; hint?: string; code?: string };
+  return [
+    candidate.message,
+    candidate.details ? `Details: ${candidate.details}` : null,
+    candidate.hint ? `Hint: ${candidate.hint}` : null,
+    candidate.code ? `Code: ${candidate.code}` : null,
+  ].filter(Boolean).join(' ');
+};
+
+export const getWorkspaceOnboardingErrorMessage = (error: unknown) => {
+  if (error instanceof WorkspaceOnboardingError) {
+    return `${error.message}${error.details ? ` ${error.details}` : ''}`;
+  }
+  if (error instanceof Error) return error.message;
+  return 'Workspace setup failed. Please try again.';
 };
 
 const assertRoleCreationAllowed = (actor: User | null | undefined, targetRole: UserRole) => {
@@ -162,53 +184,74 @@ export const createWorkspaceOwnerAccount = async ({
     }
   }
 
-  const { data: firm, error: firmError } = await supabase
-    .from('firms')
-    .insert([{
-      name: cleanFirmName,
-      firm_name: cleanFirmName,
-      workspace_code: createWorkspaceCode(cleanFirmName),
-      gstin: gstin?.trim() || null,
-      subscription_plan: subscriptionPlan,
-      subscription_status: subscriptionStatus,
-      subscription_start_date: subscriptionStartDate.toISOString(),
-      subscription_expiry_date: subscriptionExpiryDate.toISOString(),
-      max_admins: limits.maxAdmins,
-      max_staff: limits.maxStaff,
-      max_clients: limits.maxClients,
-      created_by_auth_id: authUser.id,
-      created_by: authUser.id,
-    }])
-    .select('id')
-    .single();
+  const profileInsertLog = {
+    auth_id: authUser.id,
+    email: cleanEmail,
+    role: 'SuperAdmin' as const,
+    status: 'Active' as const,
+    firm_id: '(created by create_workspace_owner RPC)',
+  };
+  console.info('[AUTH] Workspace owner profile insert payload', profileInsertLog);
 
-  if (firmError) throw firmError;
+  const { data: bootstrapRows, error: bootstrapError } = await supabase.rpc('create_workspace_owner', {
+    p_firm_name: cleanFirmName,
+    p_full_name: cleanName,
+    p_email: cleanEmail,
+    p_mobile: cleanMobile,
+    p_gstin: gstin?.trim() || null,
+    p_subscription_plan: subscriptionPlan,
+    p_subscription_status: subscriptionStatus,
+    p_subscription_start_date: subscriptionStartDate.toISOString(),
+    p_subscription_expiry_date: subscriptionExpiryDate.toISOString(),
+    p_max_admins: limits.maxAdmins,
+    p_max_staff: limits.maxStaff,
+    p_max_clients: limits.maxClients,
+  });
 
-  const { data: profile, error: profileError } = await supabase
-    .from('users')
-    .insert([{
-      auth_id: authUser.id,
-      firm_id: firm.id,
-      name: cleanName,
-      email: cleanEmail,
-      role: 'SuperAdmin',
-      status: 'Active',
-      is_workspace_owner: true,
-    }])
-    .select('id')
-    .single();
+  if (bootstrapError) {
+    console.error('[AUTH] Workspace owner bootstrap failed', {
+      payload: profileInsertLog,
+      error: bootstrapError,
+    });
+    throw new WorkspaceOnboardingError(
+      'workspace_bootstrap',
+      'Workspace setup failed after authentication.',
+      describeSupabaseError(bootstrapError),
+    );
+  }
 
-  if (profileError) throw profileError;
+  const bootstrap = Array.isArray(bootstrapRows) ? bootstrapRows[0] : bootstrapRows;
+  if (!bootstrap?.firm_id || !bootstrap?.user_id) {
+    throw new WorkspaceOnboardingError(
+      'workspace_bootstrap',
+      'Workspace setup failed after authentication.',
+      'The database did not return the created firm and SuperAdmin profile IDs.',
+    );
+  }
 
-  await supabase.auth.updateUser({
+  console.info('[AUTH] Workspace owner profile created', {
+    ...profileInsertLog,
+    firm_id: bootstrap.firm_id,
+    user_id: bootstrap.user_id,
+  });
+
+  const { error: metadataError } = await supabase.auth.updateUser({
     data: {
       full_name: cleanName,
       mobile: cleanMobile,
       requested_role: 'SuperAdmin',
-      requested_firm_id: firm.id,
+      requested_firm_id: bootstrap.firm_id,
       is_workspace_owner: true,
     },
   });
 
-  return { firmId: firm.id as string, userId: profile.id as string };
+  if (metadataError) {
+    throw new WorkspaceOnboardingError(
+      'auth_metadata_update',
+      'Workspace was created, but account metadata could not be finalized.',
+      describeSupabaseError(metadataError),
+    );
+  }
+
+  return { firmId: bootstrap.firm_id as string, userId: bootstrap.user_id as string };
 };
