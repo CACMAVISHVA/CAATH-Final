@@ -103,6 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { id: 'approvals', label: 'Approvals', icon: FileCheck2 },
       { id: 'governance', label: 'Governance', icon: Scale },
       { id: 'billing', label: 'Billing & Revenue', icon: CreditCard },
+      { id: 'subscription', label: 'Subscription', icon: CreditCard },
       { id: 'user-management', label: 'User Management', icon: UserCog },
       { id: 'workspace-settings', label: 'Workspace Settings', icon: Settings },
       { id: 'firm-profile', label: 'Firm Profile', icon: Building2 },
@@ -139,7 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       { label: 'Compliance', items: pick(['gst', 'compliance', 'notifications', 'notices']) },
       { label: 'Government Portals', items: pick(['portal-gst', 'portal-income-tax', 'portal-mca', 'portal-traces']) },
       { label: 'Control', items: pick(['approvals', 'governance']) },
-      { label: 'Workspace Administration', items: pick(['user-management', 'billing', 'workspace-settings', 'firm-profile', 'security', 'login-activity']) },
+      { label: 'Workspace Administration', items: pick(['user-management', 'billing', 'subscription', 'workspace-settings', 'firm-profile', 'security', 'login-activity']) },
       { label: 'Administration', items: pick(['staff', 'auditlog', 'qa']) },
     ].filter((section) => section.items.length > 0);
   };

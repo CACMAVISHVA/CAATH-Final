@@ -5,7 +5,7 @@
 
 import React, { lazy, Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, CreditCard, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
@@ -26,6 +26,7 @@ const AICommandCenter = lazy(() => import('./domains/ai-command-center').then((m
 import { GlobalSearch, SearchResult } from './components/GlobalSearch';
 import { Logo } from './components/Logo';
 import { Modal } from './components/Modal';
+import { SubscriptionSettingsPage } from './components/SubscriptionSettingsPage';
 import { useAuth } from './context/AuthContext';
 import { normalizeAuthError } from './lib/authErrorNormalizer';
 import { getUserFullName, getUserDisplayRole } from './lib/userHelpers';
@@ -69,6 +70,7 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isOperationsDrawerOpen, setIsOperationsDrawerOpen] = useState(false);
@@ -223,6 +225,21 @@ export default function App() {
     navigate('/');
   }, [logout, navigate]);
 
+  const navigateToTab = useCallback((tab: string) => {
+    setActiveTab(tab);
+    if (tab === 'subscription') {
+      navigate('/settings/subscription');
+      return;
+    }
+    if (location.pathname === '/settings/subscription') {
+      navigate('/');
+    }
+  }, [location.pathname, navigate]);
+
+  const openSubscriptionPage = useCallback(() => {
+    navigateToTab('subscription');
+  }, [navigateToTab]);
+
   const handleProfileOpen = useCallback(() => {
     setIsProfileOpen(true);
   }, []);
@@ -239,6 +256,12 @@ export default function App() {
       setActiveTab(ROLE_HOME[user.role]);
     }
   }, [activeTab, allowedTabs, user]);
+
+  useEffect(() => {
+    if (location.pathname === '/settings/subscription') {
+      setActiveTab('subscription');
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -323,9 +346,9 @@ export default function App() {
       return <ProtectedRoute roles={[]}><Dashboard /></ProtectedRoute>;
     }
 
-    const subscriptionAllowedTabs = ['dashboard', 'billing', 'workspace-settings', 'firm-profile'];
+    const subscriptionAllowedTabs = ['dashboard', 'billing', 'subscription'];
     if (subscriptionLocked && !subscriptionAllowedTabs.includes(activeTab)) {
-      return <LockedModuleOverlay onActivate={() => setActiveTab('billing')} />;
+      return <LockedModuleOverlay onActivate={openSubscriptionPage} />;
     }
 
     if (user.role === 'GodAdmin') {
@@ -499,7 +522,9 @@ export default function App() {
       case 'payroll':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<PayrollWorkspace />)}</ProtectedRoute>;
       case 'billing':
-        return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<BillingRevenue />)}</ProtectedRoute>;
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<BillingRevenue onActivateSubscription={openSubscriptionPage} />)}</ProtectedRoute>;
+      case 'subscription':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
       case 'user-management':
       case 'staff':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<StaffManagement />)}</ProtectedRoute>;
@@ -573,7 +598,7 @@ export default function App() {
     <div className="flex h-screen bg-matte-black text-white">
       <Sidebar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={navigateToTab}
         user={user}
         onLogout={handleLogout}
         onProfileOpen={handleProfileOpen}
@@ -613,9 +638,9 @@ export default function App() {
         </header>
         {subscriptionLocked && (
           <div className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-3 text-sm text-amber-100 flex items-center justify-between gap-4">
-            <span>Your workspace has been created successfully. To activate all CAATH PMS features, please purchase or renew your subscription.</span>
+            <span>Your subscription is inactive. Activate a plan to continue.</span>
             <button
-              onClick={() => setActiveTab('billing')}
+              onClick={openSubscriptionPage}
               className="shrink-0 bg-gold px-3 py-1.5 text-xs font-bold text-matte-black"
             >
               Activate Subscription
@@ -685,7 +710,7 @@ const LockedModuleOverlay: React.FC<{ onActivate: () => void }> = ({ onActivate 
         </div>
         <h2 className="text-2xl font-bold text-white">Operational Module Locked</h2>
         <p className="mt-3 text-sm text-slate-400">
-          Your workspace has been created successfully. To activate all CAATH PMS features, please purchase or renew your subscription.
+          Your subscription is inactive. Activate a plan to continue.
         </p>
         <button
           onClick={onActivate}

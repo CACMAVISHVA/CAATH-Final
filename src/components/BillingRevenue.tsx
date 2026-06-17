@@ -66,7 +66,11 @@ const MOCK_BILLING = [
 
 const maxRevenue = Math.max(...REVENUE_DATA.map(d => d.revenue));
 
-export const BillingRevenue: React.FC = () => {
+type BillingRevenueProps = {
+  onActivateSubscription?: () => void;
+};
+
+export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscription }) => {
   const { user } = useAuth();
   const [revenueSnapshot, setRevenueSnapshot] = useState<RevenueIntelligenceSnapshot | null>(null);
   const defaultInvoice: NewInvoice = {
@@ -225,7 +229,11 @@ export const BillingRevenue: React.FC = () => {
               <h3 className="font-bold text-white">Activate Subscription</h3>
             </div>
             <p className="mt-3 text-sm text-slate-300">Payment integration is ready for Razorpay, Stripe, or UPI gateway activation.</p>
-            <button className="mt-5 w-full bg-gold px-4 py-2 text-sm font-bold text-matte-black">
+            <button
+              type="button"
+              onClick={onActivateSubscription}
+              className="mt-5 w-full bg-gold px-4 py-2 text-sm font-bold text-matte-black"
+            >
               Activate Subscription
             </button>
           </div>

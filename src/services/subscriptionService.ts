@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 import { User } from '../types';
 
 export type SubscriptionPlan = 'Starter' | 'Professional' | 'Enterprise';
-export type SubscriptionStatus = 'Active' | 'Trial' | 'Suspended' | 'Cancelled' | 'Expired';
+export type SubscriptionStatus = 'Active' | 'Trial' | 'Pending' | 'Suspended' | 'Cancelled' | 'Expired';
 export type BillingCycle = 'Monthly' | 'Yearly';
 
 export interface Subscription {
@@ -186,13 +186,79 @@ export const getFirmSubscription = async (firmId: string): Promise<Subscription 
     .from('subscriptions')
     .select('*')
     .eq('firm_id', firmId)
-    .in('status', ['Active', 'Trial'])
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (error && error.code !== 'PGRST116') throw error;
   return data as Subscription | null;
+};
+
+export const activateFirmSubscription = async (
+  firmId: string,
+  plan: SubscriptionPlan,
+  user: User,
+  billingCycle: BillingCycle = 'Monthly',
+): Promise<Subscription> => {
+  if (user.role !== 'SuperAdmin') {
+    throw new Error('Only SuperAdmin users can activate, upgrade, or renew subscriptions.');
+  }
+
+  const config = SUBSCRIPTION_PLANS[plan];
+  const amount = billingCycle === 'Monthly' ? config.monthlyAmount : config.yearlyAmount;
+  const startDate = new Date();
+  const endDate = new Date(startDate);
+  if (billingCycle === 'Monthly') {
+    endDate.setMonth(endDate.getMonth() + 1);
+  } else {
+    endDate.setFullYear(endDate.getFullYear() + 1);
+  }
+
+  const payload = {
+    plan,
+    status: 'Active' as SubscriptionStatus,
+    billing_cycle: billingCycle,
+    amount,
+    starts_at: startDate.toISOString(),
+    expires_at: endDate.toISOString(),
+    trial_ends_at: null,
+    start_date: startDate.toISOString(),
+    end_date: endDate.toISOString(),
+    next_billing_date: endDate.toISOString(),
+    trial_end_date: null,
+    grace_period_end_date: null,
+    features: config.features,
+    client_limit: config.clientLimit,
+    staff_limit: config.staffLimit,
+    storage_limit_gb: config.storageLimitGB,
+    auto_renew: true,
+    updated_at: new Date().toISOString(),
+  };
+
+  const existing = await getFirmSubscription(firmId);
+  const query = existing
+    ? supabase.from('subscriptions').update(payload).eq('id', existing.id)
+    : supabase.from('subscriptions').insert([{ firm_id: firmId, ...payload }]);
+
+  const { data, error } = await query.select().single();
+  if (error) throw error;
+
+  const { error: firmError } = await supabase
+    .from('firms')
+    .update({
+      subscription_plan: plan,
+      subscription_status: 'Active',
+      subscription_start_date: startDate.toISOString(),
+      subscription_expiry_date: endDate.toISOString(),
+      max_admins: plan === 'Enterprise' ? 10 : plan === 'Professional' ? 3 : 1,
+      max_staff: config.staffLimit === -1 ? 100 : config.staffLimit,
+      max_clients: config.clientLimit === -1 ? 1000 : config.clientLimit,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', firmId);
+
+  if (firmError) throw firmError;
+  return data as Subscription;
 };
 
 // Update subscription

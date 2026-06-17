@@ -38,7 +38,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const subscriptionLocked = useMemo(() => {
     if (!user || user.role === 'GodAdmin') return false;
     const status = user.firm?.subscriptionStatus;
-    return Boolean(status && status !== 'Active' && status !== 'Trial');
+    return Boolean(status && status !== 'Active');
   }, [user]);
 
   const loadUserProfile = useCallback(async (activeSession: Session | null) => {
