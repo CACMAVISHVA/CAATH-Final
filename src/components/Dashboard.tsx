@@ -11,6 +11,7 @@ import {
   Clock,
   Activity,
   Cpu,
+  FileText,
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
@@ -39,6 +40,9 @@ const DashboardCharts = lazy(() => import('./DashboardCharts'));
 
 const emptyMetrics: DashboardMetrics = {
   activeClients: 0,
+  adminCount: 0,
+  staffCount: 0,
+  documentCount: 0,
   pendingApprovals: 0,
   overdueTasks: 0,
   filingCount: 0,
@@ -181,6 +185,30 @@ export const Dashboard: React.FC = () => {
       trend: '+0%',
     },
     {
+      label: 'Admins',
+      value: metrics.adminCount.toString(),
+      icon: Users,
+      color: 'text-blue-400',
+      bg: 'bg-blue-500/10',
+      trend: '+0',
+    },
+    {
+      label: 'Staff',
+      value: metrics.staffCount.toString(),
+      icon: Users,
+      color: 'text-cyan-400',
+      bg: 'bg-cyan-500/10',
+      trend: '+0',
+    },
+    {
+      label: 'Documents',
+      value: metrics.documentCount.toString(),
+      icon: FileText,
+      color: 'text-purple-400',
+      bg: 'bg-purple-500/10',
+      trend: '+0',
+    },
+    {
       label: 'Pending Filings',
       value: metrics.filingCount.toString(),
       icon: Clock,
@@ -206,6 +234,9 @@ export const Dashboard: React.FC = () => {
     },
   ] : [
     { label: 'Active Clients', value: '-', icon: Users, color: 'text-gold', bg: 'bg-gold/10', trend: '-0%' },
+    { label: 'Admins', value: '-', icon: Users, color: 'text-blue-400', bg: 'bg-blue-500/10', trend: '-0' },
+    { label: 'Staff', value: '-', icon: Users, color: 'text-cyan-400', bg: 'bg-cyan-500/10', trend: '-0' },
+    { label: 'Documents', value: '-', icon: FileText, color: 'text-purple-400', bg: 'bg-purple-500/10', trend: '-0' },
     { label: 'Pending Filings', value: '-', icon: Clock, color: 'text-amber-500', bg: 'bg-amber-500/10', trend: '-0' },
     { label: 'Active Notices', value: '-', icon: Bell, color: 'text-red-500', bg: 'bg-red-500/10', trend: '-0' },
     { label: 'Revenue (MTD)', value: '-', icon: CreditCard, color: 'text-emerald-500', bg: 'bg-emerald-500/10', trend: '-0%' },

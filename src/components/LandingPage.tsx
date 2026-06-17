@@ -173,7 +173,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
               </div>
               <div className="flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-gold" />
-                <span className="font-bold">Unlimited Storage</span>
+                <span className="font-bold">Reports & Analytics</span>
               </div>
               <div className="flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-gold" />

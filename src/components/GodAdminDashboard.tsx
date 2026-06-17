@@ -31,6 +31,21 @@ import {
   PlatformConfigSnapshot,
 } from '../services/godAdminPlatformSegmentationService';
 import { formatTenantDisplayId } from '../lib/tenantIdentity';
+import {
+  approveSubscriptionRequest,
+  listSubscriptionInvoices,
+  listSubscriptionRequests,
+  manuallyActivateSubscription,
+  PlatformSettings,
+  rejectSubscriptionRequest,
+  savePlatformSettings,
+  getPlatformSettings,
+  Subscription,
+  SubscriptionInvoice,
+  SubscriptionRequest,
+  BillingCycle,
+  SubscriptionPlan,
+} from '../services/subscriptionService';
 
 interface GodAdminDashboardProps {
   activeTab: string;
@@ -42,7 +57,10 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
 
   // Data state
   const [firms, setFirms] = useState<FirmRow[]>([]);
-  const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [subscriptionRequests, setSubscriptionRequests] = useState<SubscriptionRequest[]>([]);
+  const [subscriptionInvoices, setSubscriptionInvoices] = useState<SubscriptionInvoice[]>([]);
+  const [platformSettings, setPlatformSettings] = useState<PlatformSettings | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -106,9 +124,12 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
     setIsLoading(true);
     setMessage(null);
 
-    const [firmResult, subscriptionResult, auditResult, controlTower, usage, config] = await Promise.all([
-      supabase.from('firms').select('id, status, created_at').order('created_at', { ascending: false }),
+    const [firmResult, subscriptionResult, requestResult, invoiceResult, settingsResult, auditResult, controlTower, usage, config] = await Promise.all([
+      supabase.from('firms').select('id, name, firm_name, gstin, status, created_at').order('created_at', { ascending: false }),
       supabase.from('subscriptions').select('id, firm_id, plan, status, amount, starts_at, expires_at').order('created_at', { ascending: false }),
+      listSubscriptionRequests(),
+      listSubscriptionInvoices(),
+      getPlatformSettings(),
       supabase.from('audit_logs').select('id, firm_id, user_name, user_role, action, entity_type, details, created_at').order('created_at', { ascending: false }).limit(20),
       loadControlTowerSnapshot(),
       loadUsageMonitoringSnapshot(),
@@ -119,8 +140,11 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
     else setFirms((firmResult.data || []) as FirmRow[]);
 
     if (!subscriptionResult.error) {
-      setSubscriptions((subscriptionResult.data || []) as unknown as SubscriptionRow[]);
+      setSubscriptions((subscriptionResult.data || []) as unknown as Subscription[]);
     }
+    setSubscriptionRequests(requestResult);
+    setSubscriptionInvoices(invoiceResult);
+    setPlatformSettings(settingsResult);
 
     if (!auditResult.error) {
       const sanitizedAuditLogs = (auditResult.data || []).map((log) => ({
@@ -214,51 +238,15 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
   };
 
   // Subscription operations
-  const approveSubscription = async (subscription: SubscriptionRow) => {
+  const approveSubscriptionRequestAction = async (request: SubscriptionRequest) => {
     if (!user) return;
     playSound('success');
-    setBusyAction(`subscription-${subscription.id}`);
+    setBusyAction(`request-${request.id}`);
     setMessage(null);
 
     try {
-      const now = new Date();
-      const expiry = new Date(now);
-      expiry.setFullYear(expiry.getFullYear() + 1);
-
-      const { error } = await supabase.from('subscriptions').update({
-        status: 'Active',
-        starts_at: now.toISOString(),
-        expires_at: expiry.toISOString(),
-        approved_by: user.id,
-        approved_at: now.toISOString(),
-        updated_by: user.id,
-        updated_at: now.toISOString(),
-      }).eq('id', subscription.id);
-
-      if (error) throw error;
-
-      await supabase.from('notifications').insert([{
-        firm_id: subscription.firm_id,
-        created_by: user.id,
-        title: 'Subscription approved',
-        message: `${subscription.plan} subscription has been approved by CAATH.`,
-        audience_role: 'SuperAdmin',
-        status: 'UNREAD',
-      }]);
-
-      await writePlatformAudit({
-        firmId: subscription.firm_id,
-        action: 'Subscription Approved',
-        entityType: 'Subscription',
-        entityId: subscription.id,
-        details: `${subscription.plan} subscription approved by GodAdmin.`,
-      });
-
-      setSubscriptions((current) => current.map((item) => (
-        item.id === subscription.id
-          ? { ...item, status: 'Active', starts_at: now.toISOString(), expires_at: expiry.toISOString() }
-          : item
-      )));
+      await approveSubscriptionRequest(request, user);
+      await loadPlatformData();
       setMessage('Subscription approved and firm notified.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Subscription approval failed.');
@@ -267,33 +255,43 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
     }
   };
 
-  const markPaymentReceived = async (subscription: SubscriptionRow) => {
+  const rejectSubscriptionRequestAction = async (request: SubscriptionRequest, remarks: string) => {
     if (!user) return;
-    setBusyAction(`payment-${subscription.id}`);
+    setBusyAction(`reject-${request.id}`);
     try {
-      const now = new Date().toISOString();
-      const { error } = await supabase.from('subscriptions').update({
-        status: 'Active',
-        last_payment_date: now,
-        last_payment_status: 'Success',
-        updated_by: user.id,
-        updated_at: now,
-      }).eq('id', subscription.id);
-
-      if (error) throw error;
-
-      await writePlatformAudit({
-        firmId: subscription.firm_id,
-        action: 'Payment Marked Received',
-        entityType: 'Subscription',
-        entityId: subscription.id,
-        details: `Manual payment receipt recorded for ${subscription.plan} subscription.`,
-      });
-
-      setSubscriptions((current) => current.map((item) => item.id === subscription.id ? { ...item, status: 'Active' } : item));
-      toast.success('Payment Recorded', 'Subscription payment marked as received manually.');
+      await rejectSubscriptionRequest(request, remarks, user);
+      await loadPlatformData();
+      toast.success('Request Rejected', 'Workspace owner has been notified.');
     } catch (error) {
-      toast.error('Manual Update Failed', error instanceof Error ? error.message : 'Could not record payment.');
+      toast.error('Rejection Failed', error instanceof Error ? error.message : 'Could not reject request.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const manuallyActivateSubscriptionAction = async (input: { firmId: string; plan: SubscriptionPlan; billingCycle: BillingCycle; utrNumber?: string }) => {
+    if (!user) return;
+    setBusyAction(`manual-${input.firmId}`);
+    try {
+      await manuallyActivateSubscription({ ...input, actor: user });
+      await loadPlatformData();
+      toast.success('Subscription Activated', 'Manual subscription and invoice were created.');
+    } catch (error) {
+      toast.error('Activation Failed', error instanceof Error ? error.message : 'Manual activation failed.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const savePlatformSettingsAction = async (settings: Partial<PlatformSettings>) => {
+    if (!user) return;
+    setBusyAction('platform-settings');
+    try {
+      await savePlatformSettings(settings, user);
+      await loadPlatformData();
+      toast.success('Settings Saved', 'Subscription payment settings updated.');
+    } catch (error) {
+      toast.error('Settings Failed', error instanceof Error ? error.message : 'Could not save settings.');
     } finally {
       setBusyAction(null);
     }
@@ -408,16 +406,15 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
       return (
         <SubscriptionManagementPanel
           subscriptions={subscriptions}
+          requests={subscriptionRequests}
+          invoices={subscriptionInvoices}
+          firms={firms}
+          platformSettings={platformSettings}
           busyAction={busyAction}
-          onApprove={approveSubscription}
-          onMarkPaid={markPaymentReceived}
-          onPause={(sub) => updateSubscriptionStatus(sub.id, 'Paused', 'Subscription Paused', `${sub.plan} subscription paused manually by GodAdmin.`)}
-          onResume={(sub) => updateSubscriptionStatus(sub.id, 'Active', 'Subscription Resumed', `${sub.plan} subscription resumed manually by GodAdmin.`)}
-          onReactivate={(sub) => updateSubscriptionStatus(sub.id, 'Active', 'Subscription Reactivated', `${sub.plan} subscription reactivated manually by GodAdmin.`)}
-          onSuspend={(sub) => {
-            const firm = firms.find(f => f.id === sub.firm_id);
-            if (firm) setConfirmModal({ isOpen: true, firm, action: 'suspend', reason: '' });
-          }}
+          onApproveRequest={approveSubscriptionRequestAction}
+          onRejectRequest={rejectSubscriptionRequestAction}
+          onManualActivate={manuallyActivateSubscriptionAction}
+          onSavePlatformSettings={savePlatformSettingsAction}
         />
       );
     }
@@ -498,7 +495,7 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
           setConfirmModal({ isOpen: true, firm, action: 'reactivate', reason: '' });
           setDrilldownModal({ isOpen: false, type: 'active', title: '' });
         }}
-        onApprove={approveSubscription}
+        onApprove={() => undefined}
         firms={firms}
         subscriptions={subscriptions}
       />

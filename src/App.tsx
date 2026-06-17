@@ -346,9 +346,13 @@ export default function App() {
       return <ProtectedRoute roles={[]}><Dashboard /></ProtectedRoute>;
     }
 
-    const subscriptionAllowedTabs = ['dashboard', 'billing', 'subscription'];
+    const subscriptionAllowedTabs = ['dashboard', 'billing', 'subscription', 'firm-profile', 'workspace-settings'];
     if (subscriptionLocked && !subscriptionAllowedTabs.includes(activeTab)) {
       return <LockedModuleOverlay onActivate={openSubscriptionPage} />;
+    }
+
+    if (activeTab === 'subscription') {
+      return <ProtectedRoute roles={['GodAdmin', 'SuperAdmin']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
     }
 
     if (user.role === 'GodAdmin') {
@@ -524,7 +528,7 @@ export default function App() {
       case 'billing':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<BillingRevenue onActivateSubscription={openSubscriptionPage} />)}</ProtectedRoute>;
       case 'subscription':
-        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
+        return <ProtectedRoute roles={['SuperAdmin']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
       case 'user-management':
       case 'staff':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<StaffManagement />)}</ProtectedRoute>;
@@ -638,7 +642,7 @@ export default function App() {
         </header>
         {subscriptionLocked && (
           <div className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-3 text-sm text-amber-100 flex items-center justify-between gap-4">
-            <span>Your subscription is inactive. Activate a plan to continue.</span>
+            <span>Your subscription is inactive. Please activate a subscription plan to continue using CAATH PMS.</span>
             <button
               onClick={openSubscriptionPage}
               className="shrink-0 bg-gold px-3 py-1.5 text-xs font-bold text-matte-black"
@@ -710,7 +714,9 @@ const LockedModuleOverlay: React.FC<{ onActivate: () => void }> = ({ onActivate 
         </div>
         <h2 className="text-2xl font-bold text-white">Operational Module Locked</h2>
         <p className="mt-3 text-sm text-slate-400">
-          Your subscription is inactive. Activate a plan to continue.
+          Your subscription is inactive.
+          <br />
+          Please activate a subscription plan to continue using CAATH PMS.
         </p>
         <button
           onClick={onActivate}

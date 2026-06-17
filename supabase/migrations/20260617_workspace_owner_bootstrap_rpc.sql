@@ -58,10 +58,11 @@ BEGIN
     v_workspace_base := 'CAATH';
   END IF;
   v_workspace_code := v_workspace_base || '-' || substr(v_firm_id::text, 1, 5);
-  v_subscription_amount := CASE p_subscription_plan
-    WHEN 'Professional' THEN 4999
-    WHEN 'Enterprise' THEN 14999
-    ELSE 0
+  v_subscription_amount := CASE
+    WHEN p_subscription_status = 'Trial' THEN 0
+    WHEN p_subscription_plan = 'Professional' THEN 1599
+    WHEN p_subscription_plan = 'Enterprise' THEN 2599
+    ELSE 999
   END;
 
   RAISE LOG '[AUTH] create_workspace_owner inserting auth_id=%, email=%, role=SuperAdmin, status=Active, firm_id=%',
@@ -108,18 +109,38 @@ BEGIN
     trial_ends_at,
     starts_at,
     expires_at,
+    start_date,
+    end_date,
+    next_billing_date,
+    trial_end_date,
+    client_limit,
+    staff_limit,
+    storage_limit_gb,
+    auto_renew,
     features,
     created_by,
     updated_by
   ) VALUES (
     v_firm_id,
     p_subscription_plan,
-    'Pending',
+    p_subscription_status,
     v_subscription_amount,
     'Monthly',
     p_subscription_expiry_date,
     p_subscription_start_date,
     p_subscription_expiry_date,
+    p_subscription_start_date,
+    p_subscription_expiry_date,
+    p_subscription_expiry_date,
+    CASE WHEN p_subscription_status = 'Trial' THEN p_subscription_expiry_date ELSE null END,
+    p_max_clients,
+    p_max_staff,
+    CASE p_subscription_plan
+      WHEN 'Professional' THEN 50
+      WHEN 'Enterprise' THEN 200
+      ELSE 10
+    END,
+    false,
     jsonb_build_object(
       'clients', true,
       'documents', true,

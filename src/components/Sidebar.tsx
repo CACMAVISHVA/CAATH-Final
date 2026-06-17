@@ -121,14 +121,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     let visibleItems = items;
     if (user?.role === 'Admin') {
-      visibleItems = items.filter(item => !['billing', 'staff', 'security', 'workspace-settings', 'firm-profile'].includes(item.id)).concat([
+      visibleItems = items.filter(item => !['billing', 'subscription', 'staff', 'security', 'workspace-settings', 'firm-profile'].includes(item.id)).concat([
         { id: 'auditlog', label: 'Audit Log', icon: HistoryIcon },
         { id: 'qa', label: 'Operational QA', icon: Bug },
       ]);
     }
 
     if (user?.role === 'Staff') {
-      visibleItems = items.filter(item => !['billing', 'user-management', 'workspace-settings', 'firm-profile', 'login-activity', 'staff', 'auditlog', 'security', 'approvals'].includes(item.id));
+      visibleItems = items.filter(item => !['billing', 'subscription', 'user-management', 'workspace-settings', 'firm-profile', 'login-activity', 'staff', 'auditlog', 'security', 'approvals'].includes(item.id));
     }
 
     const byId = new Map(visibleItems.map((item) => [item.id, item]));

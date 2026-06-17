@@ -9,6 +9,9 @@ import { WorkflowIntegritySummary } from './workflowLifecycleIntegrityService';
 
 export interface DashboardMetrics {
   activeClients: number;
+  adminCount: number;
+  staffCount: number;
+  documentCount: number;
   pendingApprovals: number;
   overdueTasks: number;
   filingCount: number;
@@ -81,6 +84,8 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
     tasksSettled,
     complianceSettled,
     billingSettled,
+    usersSettled,
+    documentsSettled,
     noticesSettled,
     integritySettled,
   ] = await Promise.allSettled([
@@ -112,10 +117,22 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
 
     // Revenue (paid invoices sum)
     supabase
-      .from('billing')
-      .select('amount')
+      .from('invoices')
+      .select('total, paid_amount')
       .eq('firm_id', firmId)
       .eq('status', 'Paid'),
+
+    supabase
+      .from('users')
+      .select('id, role', { count: 'exact' })
+      .eq('firm_id', firmId)
+      .eq('status', 'Active'),
+
+    supabase
+      .from('document_vault')
+      .select('id', { count: 'exact' })
+      .eq('firm_id', firmId)
+      .eq('is_deleted', false),
 
     // Pending notices
     supabase
@@ -130,7 +147,9 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
   const approvalsResult = settledOrFallback(approvalsSettled, { data: [], count: 0, error: null }, 'approval_tasks');
   const tasksResult = settledOrFallback(tasksSettled, { data: [], count: 0, error: null }, 'tasks');
   const complianceResult = settledOrFallback(complianceSettled, { data: [], count: 0, error: null }, 'compliance_tasks');
-  const billingResult = settledOrFallback(billingSettled, { data: [], count: 0, error: null }, 'billing');
+  const billingResult = settledOrFallback(billingSettled, { data: [], count: 0, error: null }, 'invoices');
+  const usersResult = settledOrFallback(usersSettled, { data: [], count: 0, error: null }, 'users');
+  const documentsResult = settledOrFallback(documentsSettled, { data: [], count: 0, error: null }, 'document_vault');
   const noticesResult = settledOrFallback(noticesSettled, { data: [], count: 0, error: null }, 'notices');
   const integrity = settledOrFallback(integritySettled, emptyIntegritySummary, 'workflow lifecycle integrity');
 
@@ -139,7 +158,9 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
     ['approval_tasks', approvalsResult],
     ['tasks', tasksResult],
     ['compliance_tasks', complianceResult],
-    ['billing', billingResult],
+    ['invoices', billingResult],
+    ['users', usersResult],
+    ['document_vault', documentsResult],
     ['notices', noticesResult],
   ].forEach(([label, result]) => {
     const error = (result as { error?: unknown }).error;
@@ -157,9 +178,12 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
 
   // Revenue sum
   const revenue = (billingResult.data || []).reduce(
-    (sum: number, item: { amount: number }) => sum + (item.amount || 0),
+    (sum: number, item: { total?: number; paid_amount?: number }) => sum + (item.paid_amount || item.total || 0),
     0
   );
+  const allUsers = (usersResult.data || []) as Array<{ role: string }>;
+  const adminCount = allUsers.filter((item) => item.role === 'SuperAdmin' || item.role === 'Admin').length;
+  const staffCount = allUsers.filter((item) => item.role === 'Staff').length;
 
   // Task status breakdown
   const taskStatusCounts = allTasks.reduce((acc: Record<string, number>, t: { status: string }) => {
@@ -259,6 +283,9 @@ export const getDashboardMetrics = async (firmId: string): Promise<DashboardMetr
 
   return {
     activeClients: clientsResult.count || 0,
+    adminCount,
+    staffCount,
+    documentCount: documentsResult.count || 0,
     pendingApprovals: approvalsResult.count || 0,
     overdueTasks,
     filingCount: complianceResult.count || 0,

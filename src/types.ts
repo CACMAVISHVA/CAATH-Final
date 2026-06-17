@@ -14,7 +14,15 @@ export type DocumentStatus = 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED
 export type DocumentWorkflowStage = 'DRAFT' | 'STAFF_PROCESSED' | 'ADMIN_REVIEW' | 'SUPERADMIN_APPROVAL' | 'CLIENT_VISIBLE' | 'ARCHIVED' | 'REJECTED' | 'REWORK';
 
 export type UserRole = 'GodAdmin' | 'SuperAdmin' | 'Admin' | 'Staff' | 'Client';
-export type SubscriptionStatus = 'Trial' | 'Active' | 'Pending Payment' | 'Pending Subscription' | 'Expired' | 'Suspended' | 'Cancelled';
+export type SubscriptionStatus =
+  | 'Trial'
+  | 'Pending Verification'
+  | 'Pending Payment'
+  | 'Active'
+  | 'Expired'
+  | 'Suspended'
+  | 'Cancelled'
+  | 'Rejected';
 export type WorkspaceSubscriptionPlan = 'Starter' | 'Professional' | 'Enterprise';
 
 export type ApprovalStatus = 'DRAFT' | 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REWORK' | 'CLIENT_VISIBLE' | 'ARCHIVED';

@@ -25,6 +25,7 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'usage',
     'system-notices',
     'settings',
+    'subscription',
   ],
   SuperAdmin: [
     'workspace',
@@ -53,7 +54,6 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'ai',
     'payroll',
     'billing',
-    'subscription',
     'user-management',
     'workspace-settings',
     'firm-profile',
@@ -90,7 +90,6 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'ai',
     'payroll',
     'billing',
-    'subscription',
     'user-management',
     'login-activity',
     'auditlog',
@@ -117,7 +116,6 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'notifications',
     'payroll',
     'billing',
-    'subscription',
   ],
   Client: ['overview', 'documents', 'messages', 'compliance'],
 };

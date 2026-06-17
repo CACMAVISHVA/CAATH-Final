@@ -37,9 +37,9 @@ export class WorkspaceOnboardingError extends Error {
 }
 
 const PLAN_LIMITS: Record<WorkspaceSubscriptionPlan, { maxAdmins: number; maxStaff: number; maxClients: number }> = {
-  Starter: { maxAdmins: 1, maxStaff: 3, maxClients: 25 },
-  Professional: { maxAdmins: 3, maxStaff: 15, maxClients: 100 },
-  Enterprise: { maxAdmins: 10, maxStaff: 100, maxClients: 1000 },
+  Starter: { maxAdmins: 1, maxStaff: 3, maxClients: 10 },
+  Professional: { maxAdmins: 3, maxStaff: 10, maxClients: 50 },
+  Enterprise: { maxAdmins: 10, maxStaff: -1, maxClients: -1 },
 };
 
 const canCreateRole = (actorRole: UserRole | null, targetRole: UserRole) => {
@@ -148,11 +148,11 @@ export const createWorkspaceOwnerAccount = async ({
   const cleanEmail = email.trim();
   const cleanName = fullName.trim();
   const cleanMobile = mobile.trim();
-  const limits = PLAN_LIMITS[subscriptionPlan];
-  const subscriptionStatus: SubscriptionStatus = 'Pending Subscription';
+  const limits = PLAN_LIMITS.Starter;
+  const subscriptionStatus: SubscriptionStatus = 'Trial';
   const subscriptionStartDate = new Date();
   const subscriptionExpiryDate = new Date(subscriptionStartDate);
-  subscriptionExpiryDate.setDate(subscriptionExpiryDate.getDate() + 14);
+  subscriptionExpiryDate.setDate(subscriptionExpiryDate.getDate() + 7);
 
   if (!cleanFirmName || !cleanEmail || !cleanName || !cleanMobile || !password.trim()) {
     throw new Error('Firm name, full name, email, mobile number, and password are required.');
@@ -204,7 +204,7 @@ export const createWorkspaceOwnerAccount = async ({
     p_email: cleanEmail,
     p_mobile: cleanMobile,
     p_gstin: gstin?.trim() || null,
-    p_subscription_plan: subscriptionPlan,
+    p_subscription_plan: 'Starter',
     p_subscription_status: subscriptionStatus,
     p_subscription_start_date: subscriptionStartDate.toISOString(),
     p_subscription_expiry_date: subscriptionExpiryDate.toISOString(),
