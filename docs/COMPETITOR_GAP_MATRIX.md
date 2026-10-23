@@ -1,6 +1,6 @@
 # CAATH competitor gap audit — 23 October 2026
 
-Baseline: main 9c28e5903b2dfded39a8e37b6327174b548fdd34; read-only inspection of CAATH PRACTICE OS. “Existing” means code and matching schema were found, not that every end-to-end flow has passed UAT. “Partial” includes code/schema drift. Prior chat assistant text could not be recovered (reference placeholders); its two screenshots were reviewed. No claim of completeness for undisclosed competitors.
+Baseline: main 9c28e5903b2dfded39a8e37b6327174b548fdd34; read-only inspection of CAATH PRACTICE OS. “Existing” means code and matching schema were found, not that every end-to-end flow has passed UAT. “Partial” includes code/schema drift. Prior chat assistant text could not be recovered (reference placeholders); its two screenshots were reviewed. See RECOVERED_REQUIREMENTS.md for recovered chats and older implementations of GST Practice Hub, lifecycle, GSP, accounting and template modules absent from this baseline. Reuse assessment is required. All-chat coverage remains incomplete pending older-chat access.
 
 | Capability / source | Before | Evidence and gap | Priority / phase |
 |---|---|---|---|
@@ -36,7 +36,7 @@ Baseline: main 9c28e5903b2dfded39a8e37b6327174b548fdd34; read-only inspection of
 - Supabase advisors identify 12 authenticated SECURITY DEFINER functions. This is a review signal, not proof each is vulnerable. Existing tenant helpers intentionally bypass users RLS to avoid recursion. New business RPCs use SECURITY INVOKER and explicit tenant/role checks.
 - portal_credentials has RLS with no policies; likely service-only by design. Do not open browser access to fix this advisory.
 - Existing Vite configuration embeds GEMINI_API_KEY. Do not provision a production key for this build. Server-side AI migration remains a prerequisite.
-- Existing type-check baseline has six errors in subscription/billing types; validation results must distinguish baseline from new failures.
+- The six baseline subscription/billing type errors have been corrected on this branch; type-check now passes.
 - Read Supabase RLS documentation: https://supabase.com/docs/guides/database/postgres/row-level-security and advisor guidance: https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable
 
 ## Required deployment order
