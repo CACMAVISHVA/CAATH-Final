@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { NoticeDocumentsPanel } from './NoticeDocumentsPanel';
 import { Modal } from './Modal';
 import { useAuth } from '../context/AuthContext';
 import { noticeTransitions } from '../domains/notices/noticeIntelligence';
@@ -42,8 +43,9 @@ export function NoticeIntelligencePanel({ notice, staff, onClose, onSaved }: { n
     <p className="text-xs text-slate-400">AI drafting is not connected yet. Draft text must be reviewed by the responsible professional.</p>
     <label className="block text-slate-300">Manual filing acknowledgement<input className={field} value={form.filingReference} disabled={!editable || !manager || busy} onChange={e => setForm({ ...form, filingReference: e.target.value })} /></label>
     <button className="bg-gold text-black px-4 py-2 rounded disabled:opacity-50" disabled={!editable || busy} onClick={save}>{busy ? 'Saving...' : 'Save case'}</button>
+    <NoticeDocumentsPanel notice={notice} onAttached={() => { void getNoticeHistory(notice.id).then(setHistory).catch(e => setError(e.message)); }} />
     <h3 className="text-white font-semibold">Case activity</h3>
     {history.length === 0 && <p className="text-slate-400">No recorded activity yet.</p>}
-    <ul className="text-slate-300 space-y-2">{history.map(h => <li key={h.id}>{h.event_type}: {h.to_status?.replaceAll('_', ' ')} · {new Date(h.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</li>)}</ul>
+    <ul className="text-slate-300 space-y-2">{history.map(h => <li key={h.id}>{h.event_type}: {h.to_status?.replaceAll('_', ' ')} Â· {new Date(h.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</li>)}</ul>
   </Modal>;
 }

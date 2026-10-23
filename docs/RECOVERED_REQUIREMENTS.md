@@ -26,7 +26,7 @@ The earlier local CAATH_FOUNDING_BETA checkout contains modules absent from CAAT
 | GSTR-1 vs 3B, monthly/annual summaries and exports | Partial | Existing analytics/export modules; inspect report coverage rather than creating another report engine. | P1 |
 | GST workpapers, challans and litigation | Partial | Older GSTComplianceLifecycle.tsx/service match production table names. Reuse with role and tenant hardening. | P1 |
 | GSP consent, sync jobs and notice monitoring | Partial | Older server/gst-gsp.ts, api/gst-gsp-status.ts, gspIntegrationService.ts exist. Historical documents name ClearTax as candidate, Masters India/FinAGG fallbacks. Live credentials/contracts/certification unverified. | P1 dependency |
-| Private manual notice PDFs | Partial | Earlier Notice Intelligence checkout has validation, private bucket policies and tests. Existing Vault has linked_notice_id but upload helper builds public URLs. Reconcile secure storage rather than copy the whole conflicting migration. | P1 |
+| Private manual notice PDFs | Preview implemented | Recovered private upload service adapted to current case history. Private 10 MB PDF bucket, tenant/internal-role policies, 60-second signed downloads and retained attachments. Storage API and RLS tests pass; UI verification follows preview build. | P1 |
 | Notice task and notification integration | Partial → preview implemented | Atomic intake/update RPCs, idempotency and in-app notification regression tests. Scheduled email/WhatsApp delivery remains separate. | P0 |
 | Server-only AI and secure sensitive actions | Partial | Older ai-document-extract function exists; assess document identity/byte provenance, provider limits and audit error handling before reuse. Current Vite still embeds key configuration; preview key is blank. | P0 |
 | Document intake from email/WhatsApp and checklists | Partial | Vault/task modules exist; inbound adapters, classification and missing-document follow-ups require verified delivery contracts. | P2 |
@@ -64,3 +64,13 @@ The authenticated profile query ambiguously joined users to firms because produc
 ## Survey-derived workflow requirements
 
 [Form insights for CAATH](https://chatgpt.com/c/6ac67099-b568-83e8-bb60-5b2328c9927e): user asked to retain survey insights. Add document reminders that stop on receipt and escalate when overdue; ITC exception lifecycle from missing 2B through vendor follow-up, resolution and claimed/recovered reporting; Form 3CD mapping with AIS/26AS, depreciation and reviewer checks; normalized imports for Tally, Excel, Zoho, Busy, SAP and QuickBooks. These are partial or missing pending module-level verification. Prioritize GST control, document follow-ups and reconciliation before new accounting adapters.
+
+## 24 October implementation checkpoint
+
+Monitoring browser verification passed: the synthetic unmatched inbox item was assigned to the synthetic client, reviewed, and converted into HTTP-001 with a linked workflow task. Inbox count returned to zero. All source connections remain paused.
+
+Private PDFs are now implemented on the isolated branch with an additive preview-only migration. The existing case history records attachment events. Server policies enforce tenant/internal-role access, object ownership at attachment, actual object size/type metadata, archived-case upload rejection, no overwrite and attachment retention. Browser validation checks extension, size and PDF header; this is not malware scanning or a server-side full PDF parser. Private signed downloads force attachment delivery; antivirus/quarantine remains a launch dependency if required.
+
+Validation: 17 Node tests pass; type-check/build pass; private-document rollback SQL passes. Real preview Storage API verified upload, metadata attachment, signed download, public URL denial, retained-delete denial and overwrite denial. Previous 4 Python worker tests remain passing from the monitoring checkpoint.
+
+All-chat recovery is still incomplete. Remaining known sources include Bulk Client Import Availability, Optotax Reporting Steps, Staff login process, Build Or Buy Agents and CAATH file audit. Next implementation work: review server-only AI and recover GST Practice Hub against existing schema. No production migration, merge, portal filing or real mailbox activation has occurred.
