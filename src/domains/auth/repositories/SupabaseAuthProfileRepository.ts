@@ -67,7 +67,7 @@ export const authProfileRepository = {
   async findByAuthId(authId: string): Promise<AuthProfileDto | null> {
     const { data, error } = await supabase
       .from('users')
-      .select('id, auth_id, firm_id, name, email, role, status, is_workspace_owner, created_at, firms(id, name, firm_name, workspace_code, subscription_plan, subscription_status, subscription_start_date, subscription_expiry_date, max_admins, max_staff, max_clients, created_by_auth_id, created_at)')
+      .select('id, auth_id, firm_id, name, email, role, status, is_workspace_owner, created_at, firms!firm_id(id, name, firm_name, workspace_code, subscription_plan, subscription_status, subscription_start_date, subscription_expiry_date, max_admins, max_staff, max_clients, created_by_auth_id, created_at)')
       .eq('auth_id', authId)
       .maybeSingle();
     if (error) throw error;
@@ -86,9 +86,10 @@ export const authProfileRepository = {
         firm_id: payload.firmId,
         is_workspace_owner: Boolean(payload.isWorkspaceOwner),
       }])
-      .select('id, auth_id, firm_id, name, email, role, status, is_workspace_owner, created_at, firms(id, name, firm_name, workspace_code, subscription_plan, subscription_status, subscription_start_date, subscription_expiry_date, max_admins, max_staff, max_clients, created_by_auth_id, created_at)')
+      .select('id, auth_id, firm_id, name, email, role, status, is_workspace_owner, created_at, firms!firm_id(id, name, firm_name, workspace_code, subscription_plan, subscription_status, subscription_start_date, subscription_expiry_date, max_admins, max_staff, max_clients, created_by_auth_id, created_at)')
       .single();
     if (error) throw error;
     return mapRow(data as unknown as UserProfileRow);
   },
 };
+
