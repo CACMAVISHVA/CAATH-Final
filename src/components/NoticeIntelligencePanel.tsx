@@ -11,6 +11,7 @@ export function NoticeIntelligencePanel({ notice, staff, onClose, onSaved }: { n
   const initial = { status: notice.status as string, assignedTo: notice.assigned_to || '', draft: notice.reply_draft || '', filingReference: notice.filing_reference || '' };
   const [form, setForm] = useState(initial);
   const [history, setHistory] = useState<{ id: string; event_type: string; to_status: string; created_at: string }[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const guardClose = useUnsavedChangesGuard(JSON.stringify(form) !== JSON.stringify(initial));
@@ -18,7 +19,8 @@ export function NoticeIntelligencePanel({ notice, staff, onClose, onSaved }: { n
   const editable = ['Admin', 'SuperAdmin', 'Staff'].includes(user?.role || '') && notice.status !== 'Archived';
   useEffect(() => {
     let active = true;
-    getNoticeHistory(notice.id).then(rows => { if (active) setHistory(rows); }).catch(e => { if (active) setError(e.message); });
+    setHistoryLoading(true);
+    getNoticeHistory(notice.id).then(rows => { if (active) setHistory(rows); }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setHistoryLoading(false); });
     return () => { active = false; };
   }, [notice.id]);
   async function save() {
@@ -45,7 +47,8 @@ export function NoticeIntelligencePanel({ notice, staff, onClose, onSaved }: { n
     <button className="bg-gold text-black px-4 py-2 rounded disabled:opacity-50" disabled={!editable || busy} onClick={save}>{busy ? 'Saving...' : 'Save case'}</button>
     <NoticeDocumentsPanel notice={notice} onAttached={() => { void getNoticeHistory(notice.id).then(setHistory).catch(e => setError(e.message)); }} />
     <h3 className="text-white font-semibold">Case activity</h3>
-    {history.length === 0 && <p className="text-slate-400">No recorded activity yet.</p>}
-    <ul className="text-slate-300 space-y-2">{history.map(h => <li key={h.id}>{h.event_type}: {h.to_status?.replaceAll('_', ' ')} Â· {new Date(h.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</li>)}</ul>
+    {historyLoading && <p className="text-slate-400">Loading case activity…</p>}
+    {!historyLoading && history.length === 0 && <p className="text-slate-400">No recorded activity yet.</p>}
+    <ul className="text-slate-300 space-y-2">{history.map(h => <li key={h.id}>{h.event_type}: {h.to_status?.replaceAll('_', ' ')} · {new Date(h.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</li>)}</ul>
   </Modal>;
 }
