@@ -24,8 +24,8 @@ export interface SubscriptionRow {
   plan: string;
   status: string;
   amount: number;
-  starts_at: string | null;
-  expires_at: string | null;
+  starts_at?: string | null;
+  expires_at?: string | null;
   billing_cycle?: string | null;
   created_at?: string | null;
 }

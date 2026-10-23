@@ -33,6 +33,7 @@ export interface Subscription {
   end_date?: string | null;
   next_billing_date?: string | null;
   trial_end_date?: string | null;
+  grace_period_end_date?: string | null;
   features?: string[] | Record<string, boolean>;
   client_limit?: number;
   staff_limit?: number;

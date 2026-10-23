@@ -34,6 +34,8 @@ import {
   NoticeSource,
   NoticeStatus
 } from '../services/noticeService';
+import { NoticeIntelligencePanel } from './NoticeIntelligencePanel';
+import { deadlineBand } from '../domains/notices/noticeIntelligence';
 import { getClients } from '../services/clientService';
 
 export const NoticeCenter: React.FC = () => {
@@ -56,6 +58,10 @@ export const NoticeCenter: React.FC = () => {
     assignedTo: ''
   });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState<NoticeRow | null>(null);
+  const [deadlineFilter, setDeadlineFilter] = useState('All');
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const defaultNoticeForm = {
     clientId: '',
     source: 'Income Tax' as NoticeSource,
@@ -71,6 +77,7 @@ export const NoticeCenter: React.FC = () => {
   const loadNotices = useCallback(async () => {
     if (!user?.firmId) return;
     setLoading(true);
+    setError('');
     try {
       const [noticesData, statsData, signals] = await Promise.all([
         getNotices(user.firmId),
@@ -81,7 +88,7 @@ export const NoticeCenter: React.FC = () => {
       setStats(statsData);
       setWorkflowSignals(Object.fromEntries(signals.map((signal) => [signal.noticeId, signal])));
     } catch (error) {
-      console.error('Failed to load notices:', error);
+      setError(error instanceof Error ? error.message : 'Could not load notices.');
     } finally {
       setLoading(false);
     }
@@ -100,7 +107,9 @@ export const NoticeCenter: React.FC = () => {
 
   const handleCreateNotice = async () => {
     if (!user || !formData.clientId) return;
+    if (saving) return;
     setSaving(true);
+    setError('');
     try {
       await createNotice({
         firmId: user.firmId!,
@@ -111,19 +120,21 @@ export const NoticeCenter: React.FC = () => {
         receivedDate: formData.receivedDate,
         deadline: formData.deadline || undefined,
         assignedTo: formData.assignedTo || undefined,
-        user
+        user, requestId
       });
       setShowAddModal(false);
       setFormData(defaultNoticeForm);
+      setRequestId(crypto.randomUUID());
       loadNotices();
     } catch (error) {
-      console.error('Failed to create notice:', error);
+      setError(error instanceof Error ? error.message : 'Could not create notice.');
     } finally {
       setSaving(false);
     }
   };
 
   const filteredNotices = notices.filter(n => {
+    if (deadlineFilter !== 'All' && deadlineBand(n.deadline, n.status) !== deadlineFilter) return false;
     const clientName = n.clients?.name || '';
     return clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (n.notice_number || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -153,6 +164,7 @@ export const NoticeCenter: React.FC = () => {
 
   return (
     <div className="p-8 space-y-6 h-full bg-matte-black overflow-y-auto">
+      {error && <p role="alert" className="p-3 border border-red-500 text-red-300">{error}</p>}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gold">Notice Center</h2>
@@ -196,7 +208,7 @@ export const NoticeCenter: React.FC = () => {
           </div>
         </div>
         <div className="p-6 bg-matte-black-light rounded-2xl border border-slate-800">
-          <p className="text-sm font-medium text-slate-500 mb-2">Closed This Month</p>
+          <p className="text-sm font-medium text-slate-500 mb-2">Closed / Archived</p>
           <div className="flex items-center justify-between">
             <h3 className="text-2xl font-bold text-white">{stats.closed}</h3>
             <div className="p-2 bg-emerald-500/10 rounded-lg">
@@ -219,6 +231,7 @@ export const NoticeCenter: React.FC = () => {
         </div>
       </div>
 
+      <label className="block text-slate-300">Deadline filter <select aria-label="Deadline filter" className="bg-slate-900 p-2" value={deadlineFilter} onChange={e => setDeadlineFilter(e.target.value)}>{['All', 'Overdue', 'Due today', 'Due soon', 'Later', 'Resolved'].map(x => <option key={x}>{x}</option>)}</select></label>
       {loading && (
         <div className="flex items-center justify-center py-12">
           <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
@@ -301,6 +314,8 @@ export const NoticeCenter: React.FC = () => {
                   </div>
 
                   <div className="flex flex-col md:items-end gap-4">
+                    <span className="text-amber-300">{deadlineBand(notice.deadline, notice.status)}</span>
+                    {import.meta.env.VITE_NOTICE_INTELLIGENCE === 'true' && <button className="text-gold underline" onClick={() => setSelected(notice)}>Open case</button>}
                     <div className="flex items-center gap-3">
                       <div className="text-right hidden md:block">
                         <p className="text-xs text-slate-500 uppercase tracking-wider font-bold">Status</p>
@@ -311,7 +326,7 @@ export const NoticeCenter: React.FC = () => {
                       <div className="w-px h-8 bg-slate-800 hidden md:block" />
                       <div className="flex items-center gap-2 bg-matte-black px-3 py-1.5 rounded-lg border border-slate-800">
                         <User className="w-4 h-4 text-slate-500" />
-                        <span className="text-sm text-slate-400 font-medium">{notice.assigned_to || 'Unassigned'}</span>
+                        <span className="text-sm text-slate-400 font-medium">{staff.find(s => s.id === notice.assigned_to)?.name || (notice.assigned_to ? 'Assigned team member' : 'Unassigned')}</span>
                       </div>
                     </div>
                   </div>
@@ -322,6 +337,7 @@ export const NoticeCenter: React.FC = () => {
         </div>
       )}
 
+      {selected && <NoticeIntelligencePanel notice={selected} staff={staff} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); void loadNotices(); }} />}
       {/* Add Notice Modal */}
       <Modal
         isOpen={showAddModal}
@@ -330,6 +346,7 @@ export const NoticeCenter: React.FC = () => {
         size="lg"
         contentClassName="p-6 space-y-4"
       >
+              {error && <p role="alert" className="text-red-300">{error}</p>}
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Client</label>
                 <select
@@ -418,7 +435,7 @@ export const NoticeCenter: React.FC = () => {
               </button>
               <button
                 onClick={handleCreateNotice}
-                disabled={saving || !formData.clientId}
+                disabled={saving || !formData.clientId || !formData.noticeNumber.trim() || !formData.receivedDate || !formData.deadline}
                 className="flex-1 p-3 rounded-xl bg-gold text-matte-black font-bold disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Create Notice'}

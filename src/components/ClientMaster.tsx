@@ -38,6 +38,7 @@ import { ClientGovernanceSidebar } from './client-domain/ClientGovernanceSidebar
 import { Modal } from './Modal';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 
+const LeadPipeline = lazy(() => import('./LeadPipeline'));
 const ClientProfile = lazy(() => import('./ClientProfile'));
 
 const SERVICE_OPTIONS = [
@@ -301,6 +302,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
         </button>
       </div>
 
+      {import.meta.env.VITE_NOTICE_INTELLIGENCE === 'true' && !assignedOnly && <Suspense fallback={<p>Loading leads...</p>}><LeadPipeline clients={clients} /></Suspense>}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />

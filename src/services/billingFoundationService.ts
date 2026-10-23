@@ -7,14 +7,14 @@ export interface SubscriptionLedgerEntry {
   plan: SubscriptionPlan;
   status: string;
   amount: number;
-  periodStart: string;
-  periodEnd: string;
+  periodStart: string | null;
+  periodEnd: string | null;
   paymentStatus: string | null;
 }
 
 export interface RenewalForecast {
   subscriptionId: string;
-  renewsOn: string;
+  renewsOn: string | null;
   amount: number;
   gracePeriodEnds: string | null;
   requiresAction: boolean;
@@ -32,9 +32,9 @@ export const getSubscriptionLedger = async (firmId: string): Promise<Subscriptio
     plan: subscription.plan,
     status: subscription.status,
     amount: subscription.amount,
-    periodStart: subscription.start_date,
-    periodEnd: subscription.end_date,
-    paymentStatus: subscription.last_payment_status,
+    periodStart: subscription.start_date ?? subscription.starts_at ?? null,
+    periodEnd: subscription.end_date ?? subscription.expires_at ?? null,
+    paymentStatus: subscription.last_payment_status ?? null,
   }));
 };
 
@@ -60,9 +60,9 @@ export const getRenewalForecast = async (firmId: string): Promise<RenewalForecas
   if (error) throw error;
   return ((data || []) as Subscription[]).map((subscription) => ({
     subscriptionId: subscription.id,
-    renewsOn: subscription.next_billing_date,
+    renewsOn: subscription.next_billing_date ?? subscription.expires_at ?? null,
     amount: subscription.amount,
-    gracePeriodEnds: subscription.grace_period_end_date,
+    gracePeriodEnds: subscription.grace_period_end_date ?? null,
     requiresAction: subscription.status === 'Suspended' || subscription.status === 'Trial',
   }));
 };
@@ -71,7 +71,7 @@ export const getPlanFeatureMatrix = () =>
   Object.values(SUBSCRIPTION_PLANS).map((plan) => ({
     plan: plan.plan,
     monthlyAmount: plan.monthlyAmount,
-    yearlyAmount: plan.yearlyAmount,
+    yearlyAmount: plan.annualAmount,
     clientLimit: plan.clientLimit,
     staffLimit: plan.staffLimit,
     storageLimitGB: plan.storageLimitGB,
