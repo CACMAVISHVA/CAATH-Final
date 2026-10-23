@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+supabase/.temp/
+.vercel/
+
+__pycache__/
+*.pyc
+*.sqlite3
