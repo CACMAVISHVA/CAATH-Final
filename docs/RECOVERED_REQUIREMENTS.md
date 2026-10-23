@@ -1,6 +1,6 @@
 # Recovered CAATH requirements — 23 October 2026
 
-Coverage is incomplete: the chat connector lists only the 50 most recent chats and pinned chats, with no paging/search parameter. Older ChatGPT project chats require browser sign-in. Do not describe this as an exhaustive all-chat audit yet.
+Coverage is incomplete: the chat connector lists only the 50 most recent chats and pinned chats, with no paging/search parameter. Browser sign-in succeeded and older chats are now being recovered. Do not describe this as an exhaustive all-chat audit yet.
 
 ## Source register
 
@@ -48,3 +48,19 @@ The earlier local CAATH_FOUNDING_BETA checkout contains modules absent from CAAT
 5. Practice operations/accounting/template/regulatory recovery in separate reviewable phases.
 
 No production changes, merges, provider filings or payments are authorized by this report.
+
+## Additional browser-recovered decisions
+
+- [Competitor analysis](https://chatgpt.com/c/6ac930c7-0518-83ee-b146-bc845c9625e2): Glex Media Ultimate CA & Accounting Toolkit was discussed. User explicitly rejected a separate toolkit business: integrate useful capabilities into CAATH. The earlier proposed toolkit checkout/pricing is superseded. Includes Income Tax computation, ITR workpapers, AIS/26AS, capital gains/depreciation; TDS/TCS calculations/challans/interest; bookkeeping and bank reconciliation; financial statements/cash flow/schedules/ratios; payroll/PF/ESI/gratuity/professional tax; CMA/project reports/working capital/EMI; quotations/credit notes/e-invoice/e-way bill workflows. Turia was a secondary practice-management benchmark. These historical competitor claims need current verification before publishing comparisons.
+- [Wealth Goal Feasibility](https://chatgpt.com/c/6acd33d1-3c38-83ee-8cdd-3c0fe75da0d9): recovered the CAATH master implementation prompt, including Vyapar TaxOne and an unnamed ₹399 ROC toolkit. ROC scope: AOC-4 variants, MGT-7/7A, ADT-1, DIR-3 KYC, DPT-3, MSME-1; CIN/FY/company/capital/document/financial/approval mismatch checks, SRN and acknowledgements, editable reviewed outputs. Accounting scope: bank PDF/CSV/Excel normalization, duplicate detection, ledger suggestions, unmatched review, no uncertain automatic posting, controlled Tally import/export. P0 launch gates: invitations, auth, tenant isolation, payments/subscription enforcement, backup restoration, real-data-free staging and tested core workflows. No separate toolkit, no unapproved prices, no empty pages implying implemented capability.
+- [Integrate CAATH Improvements](https://chatgpt.com/c/6ac672bb-520c-83e8-8e8d-04c13664c0a2): older GST Control Centre and notice-monitoring ZIP checkpoints were produced but not confirmed live. Notice requirements include GSTIN/PAN watches, mailbox intake, unmatched queue, duplicates, task conversion, stale/failed monitoring, last/next check times and deadline reminders. User specifically requested alert delivery to each CAATH account's registered email, in addition to in-app alerts. Receiving alerts does not authorize inbox access. Email delivery remains a dependency, not completed.
+- Notice case depth from that chat: multiple notices/replies/hearings/orders per case; tax/interest/penalty exposure; separate response/hearing/payment/appeal deadlines with extension history; reviewer approval; closure outcome/evidence; client uploads and portfolio views. Current preview supports a basic single-notice lifecycle only.
+- [What is React Native](https://chatgpt.com/c/6a0c7128-05cc-8324-bf85-3e1366656455): user explored AES-256 request/response protection. Treat as a security requirement for review, not authorization to add a shared browser encryption secret or replace the Supabase authentication protocol. No credentials from historical examples are retained in this report.
+
+## Preview defect found and fixed
+
+The authenticated profile query ambiguously joined users to firms because production schema has multiple relationships (membership plus suspension/reactivation actors). The preview returned PGRST201 after successful authentication. Explicit firms!firm_id joins now select the membership relationship. The same authenticated REST query passes against preview; type-check and build pass. Browser login, manual notice creation, task linkage, draft persistence and status history passed on the earlier preview. Monitoring UI browser verification remains pending.
+
+## Survey-derived workflow requirements
+
+[Form insights for CAATH](https://chatgpt.com/c/6ac67099-b568-83e8-bb60-5b2328c9927e): user asked to retain survey insights. Add document reminders that stop on receipt and escalate when overdue; ITC exception lifecycle from missing 2B through vendor follow-up, resolution and claimed/recovered reporting; Form 3CD mapping with AIS/26AS, depreciation and reviewer checks; normalized imports for Tally, Excel, Zoho, Busy, SAP and QuickBooks. These are partial or missing pending module-level verification. Prioritize GST control, document follow-ups and reconciliation before new accounting adapters.

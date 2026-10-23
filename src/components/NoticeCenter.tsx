@@ -34,6 +34,7 @@ import {
   NoticeSource,
   NoticeStatus
 } from '../services/noticeService';
+import NoticeMonitoringPanel from './NoticeMonitoringPanel';
 import { NoticeIntelligencePanel } from './NoticeIntelligencePanel';
 import { deadlineBand } from '../domains/notices/noticeIntelligence';
 import { getClients } from '../services/clientService';
@@ -337,6 +338,7 @@ export const NoticeCenter: React.FC = () => {
         </div>
       )}
 
+      {import.meta.env.VITE_NOTICE_INTELLIGENCE === 'true' && <NoticeMonitoringPanel onAccepted={() => { void loadNotices(); }} />}
       {selected && <NoticeIntelligencePanel notice={selected} staff={staff} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); void loadNotices(); }} />}
       {/* Add Notice Modal */}
       <Modal

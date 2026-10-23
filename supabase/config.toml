@@ -1,0 +1,3 @@
+# Source-scoped bearer token is validated inside this handler.
+[functions.notice-intake]
+verify_jwt = false
