@@ -49,6 +49,7 @@ export const createNotification = async ({
   actionUrl,
   user,
 }: NotificationInput) => {
+  firmId ??= user?.firmId;
   const idempotencyKey = JSON.stringify([
     firmId || null,
     recipientUserId || null,
@@ -90,9 +91,11 @@ export const createNotification = async ({
   if (duplicateError) throw duplicateError;
   if (existingRows?.[0]?.id) return existingRows[0];
 
-  const { data, error } = await supabase
+  const notificationId = crypto.randomUUID();
+  const { error } = await supabase
     .from('notifications')
     .insert([{
+      id: notificationId,
       firm_id: firmId || null,
       recipient_user_id: recipientUserId || null,
       audience_role: audienceRole || null,
@@ -103,9 +106,8 @@ export const createNotification = async ({
       action_url: actionUrl || null,
       created_by: user?.id || null,
       updated_by: user?.id || null,
-    }])
-    .select('id')
-    .single();
+    }]);
+  const data = { id: notificationId };
 
   if (error) throw error;
   if (data?.id) {
