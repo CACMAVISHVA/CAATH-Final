@@ -7,7 +7,7 @@ import { UserRole } from '../../types';
 import { invokePortalSecrets } from './portalSecretsClient';
 import { getPortalCredential } from './portalCredentialService';
 
-const PORTAL_ROLES_WITH_ACCESS: UserRole[] = ['GodAdmin', 'SuperAdmin', 'Admin', 'Staff'];
+const PORTAL_ROLES_WITH_ACCESS: UserRole[] = ['SuperAdmin', 'Admin', 'Staff'];
 
 export const canUsePortalLauncher = (user: { role: string } | null | undefined): boolean =>
   Boolean(user && PORTAL_ROLES_WITH_ACCESS.includes(user.role as UserRole));
@@ -21,10 +21,12 @@ export const assertPortalCredentialAccess = (user: { role: string } | null | und
 export const revealPassword = async (
   credentialId: string,
   user: { id: string; name: string; role: string },
+  reason: string,
 ): Promise<string> => {
   assertPortalCredentialAccess(user);
   const result = await invokePortalSecrets<{ credentialId: string; username: string; password: string }>({
     action: 'reveal',
+    reason,
     credentialId,
   });
   return result.password;

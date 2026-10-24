@@ -36,7 +36,12 @@ export const requireCashfreeConfiguration = () => {
 
 export const readRawBody = async (req: IncomingMessage) => {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  let size = 0;
+  for await (const chunk of req) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); size += bytes.length;
+    if (size > 262144) throw Object.assign(new Error('Request too large.'), { statusCode: 413 });
+    chunks.push(bytes);
+  }
   return Buffer.concat(chunks).toString('utf8');
 };
 
@@ -78,37 +83,6 @@ export const cashfreeRequest = async <T>(path: string, init: RequestInit = {}): 
   return payload;
 };
 
-export const ensureApprovalRequest = async (db: SupabaseClient, order: Record<string, any>) => {
-  const { data: existing } = await db
-    .from('subscription_requests')
-    .select('id, reference_number')
-    .eq('gateway_order_id', order.id)
-    .maybeSingle();
-  if (existing) return existing;
-
-  const reference = `CF-${new Date().getFullYear()}-${String(order.provider_order_id).slice(-16).toUpperCase()}`;
-  const { data: request, error } = await db.from('subscription_requests').insert([{
-    reference_number: reference,
-    firm_id: order.firm_id,
-    plan: order.plan,
-    billing_cycle: order.billing_cycle,
-    amount: order.amount,
-    gst_amount: order.gst_amount,
-    total_amount: order.total_amount,
-    utr_number: order.provider_payment_id || order.provider_order_id,
-    screenshot_url: null,
-    screenshot_path: null,
-    payment_provider: 'Cashfree',
-    gateway_order_id: order.id,
-    status: 'Pending Verification',
-    created_by: order.created_by,
-    updated_by: order.created_by,
-  }]).select('id, reference_number').single();
-  if (error) throw error;
-
-  return request;
-};
-
 const sendApprovalEmailIfConfigured = async (db: SupabaseClient, decision: Record<string, any>, request: Record<string, any>) => {
   if (decision?.status !== 'pending' || !process.env.RESEND_API_KEY || !process.env.CAATH_EMAIL_FROM) return;
   const { data: settings } = await db.from('platform_settings').select('approval_email_enabled').eq('id', true).maybeSingle();
@@ -133,18 +107,10 @@ const sendApprovalEmailIfConfigured = async (db: SupabaseClient, decision: Recor
 };
 
 export const markOrderPaid = async (db: SupabaseClient, order: Record<string, any>, providerPaymentId?: string | null) => {
-  const { data: updated, error } = await db.from('payment_gateway_orders').update({
-    status: 'PAID',
-    provider_payment_id: providerPaymentId || order.provider_payment_id || null,
-    paid_at: order.paid_at || new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }).eq('id', order.id).select('*').single();
-  if (error) throw error;
-  const approvalRequest = await ensureApprovalRequest(db, updated);
-  const { data: decision, error: decisionError } = await db.rpc('process_paid_subscription_request', { p_request_id: approvalRequest.id });
-  if (decisionError) throw decisionError;
-  await sendApprovalEmailIfConfigured(db, decision || {}, approvalRequest).catch((emailError) => {
-    console.error('Approval notification email skipped after an error:', emailError);
+  const { data: result, error } = await db.rpc('complete_cashfree_payment', { p_order_id: order.id, p_payment_id: providerPaymentId || null });
+  if (error || !result) throw error || new Error('Payment completion unavailable.');
+  await sendApprovalEmailIfConfigured(db, result.decision || {}, result.approvalRequest).catch(() => {
+    console.error('Approval notification delivery failed.');
   });
-  return { order: updated, approvalRequest, decision };
+  return result as { order: Record<string, any>; approvalRequest: { id: string; reference_number: string }; decision: Record<string, any> };
 };

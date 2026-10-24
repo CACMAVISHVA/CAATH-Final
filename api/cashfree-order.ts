@@ -105,14 +105,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .eq('provider_order_id', orderId).eq('firm_id', owner.profile.firm_id).eq('created_by', owner.profile.id).maybeSingle();
     if (error || !order) return send(res, 404, { error: 'Payment order was not found.' });
     stage = 'Cashfree payment verification';
-    const remote = await cashfreeRequest<{ order_status: string }>(`/orders/${encodeURIComponent(orderId)}`);
-    if (remote.order_status === 'PAID' && order.status !== 'PAID') {
+    const remote = await cashfreeRequest<{ order_status: string; order_amount: number; order_currency: string }>(`/orders/${encodeURIComponent(orderId)}`);
+    if (remote.order_status === 'PAID') {
+      if (remote.order_currency !== order.currency || !Number.isFinite(Number(remote.order_amount)) || Math.abs(Number(remote.order_amount)-Number(order.total_amount)) > 0.01) return send(res,422,{ error:'Payment details do not match this order.' });
       const paid = await markOrderPaid(db, order);
       return send(res, 200, { status: 'PAID', referenceNumber: paid.approvalRequest.reference_number });
     }
     const mapped = remote.order_status === 'EXPIRED' ? 'EXPIRED' : remote.order_status === 'TERMINATED' ? 'FAILED' : order.status;
-    if (mapped !== order.status) await db.from('payment_gateway_orders').update({ status: mapped, updated_at: new Date().toISOString() }).eq('id', order.id);
-    return send(res, 200, { status: mapped });
+    if (mapped !== order.status) {
+      const { data: finalOrder, error: updateError } = await db.from('payment_gateway_orders').update({ status: mapped, updated_at: new Date().toISOString() }).eq('id', order.id).select('status').single();
+      if (updateError) throw updateError;
+      return send(res, 200, { status: finalOrder.status });
+    }
+    return send(res, 200, { status: order.status });
   } catch (error) {
     const status = Number((error as { statusCode?: number })?.statusCode || 500);
     const message = error instanceof Error ? error.message : 'Payment operation failed.';

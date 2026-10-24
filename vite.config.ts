@@ -24,9 +24,6 @@ export default defineConfig(({mode}) => {
             if (id.includes('node_modules/lucide-react')) return 'lucide-react';
             if (id.includes('node_modules/@supabase')) return 'supabase';
             if (id.includes('node_modules/motion')) return 'motion';
-            if (id.includes('node_modules/xlsx') || id.includes('node_modules/sheetjs')) return 'xlsx';
-            if (id.includes('node_modules/jspdf')) return 'jspdf';
-            if (id.includes('node_modules/papaparse')) return 'papaparse';
             if (id.includes('src/services/gstAnalyticsService') || id.includes('src/services/profitabilityService')) {
               return 'analytics-engine';
             }
