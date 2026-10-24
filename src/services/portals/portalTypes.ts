@@ -69,6 +69,7 @@ export interface PortalCredentialInput {
 }
 
 export type PortalCredentialUpdatePayload = Partial<{
+  assignedTo: string;
   portalName: string;
   portalUrl: string;
   username: string;

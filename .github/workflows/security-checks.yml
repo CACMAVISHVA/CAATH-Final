@@ -1,0 +1,22 @@
+name: CAATH security and build checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.6
+      - run: npm ci
+      - run: npm run preflight
+      - run: npx tsx --test tests/*.test.ts src/services/*.test.ts
+      - run: deno check --config supabase/functions/deno.json supabase/functions/portal-secrets/index.ts supabase/functions/notice-intake/index.ts
+      - run: deno test --allow-env --config supabase/functions/deno.json supabase/functions/portal-secrets/handler_test.ts
+      - run: python -m unittest discover -s tests -p "test_*.py"
