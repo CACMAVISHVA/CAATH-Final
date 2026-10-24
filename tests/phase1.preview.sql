@@ -41,9 +41,14 @@ select public.update_notice_intelligence(id,3,'Under_Review',assigned_to,'Ready 
 select public.update_notice_intelligence(id,4,'Filed',assigned_to,'Approved manually','MANUAL-REF') from public.notices;
 do $$begin
  if (select status from public.tasks limit 1)<>'Completed' then raise exception 'Task not synchronized'; end if;
- if (select count(*) from public.notifications where title like 'Notice workflow %')<>6 then raise exception 'Notification retry or lifecycle failure'; end if;
+ if (select count(*) from public.notifications where title like 'Notice workflow %')<>1 then raise exception 'Notification retry or lifecycle failure'; end if;
  if (select count(*) from public.notice_history)<>6 then raise exception 'History missing'; end if;
 end$$;
+set local role service_role;
+do $$begin
+ if (select count(*) from public.notifications where firm_id='20000000-0000-4000-8000-000000000001' and title like 'Notice workflow %')<>6 then raise exception 'Notification delivery count changed'; end if;
+end$$;
+set local role authenticated;
 insert into public.crm_leads(id,firm_id,name,next_follow_up) values('60000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','Synthetic lead','2026-10-23');
 select pg_temp.expect_failure($q$select public.convert_crm_lead('60000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000002')$q$);
 select public.convert_crm_lead('60000000-0000-4000-8000-000000000001','40000000-0000-4000-8000-000000000001');
@@ -66,7 +71,7 @@ create trigger phase1_fail_task before insert on public.tasks for each row execu
 set local role authenticated;
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000001',true);
 select pg_temp.expect_failure($q$select public.create_notice_intelligence('40000000-0000-4000-8000-000000000001','ROLLBACK','GST','2026-10-23','2026-11-01','',null,gen_random_uuid())$q$);
-do $$begin if (select count(*) from public.notifications where title like 'Notice workflow %')<>6 then raise exception 'Notification rollback failure'; end if; if exists(select 1 from public.notices where notice_number='ROLLBACK') then raise exception 'Atomicity failure'; end if; end$$;
+do $$begin if (select count(*) from public.notifications where title like 'Notice workflow %')<>1 then raise exception 'Notification rollback failure'; end if; if exists(select 1 from public.notices where notice_number='ROLLBACK') then raise exception 'Atomicity failure'; end if; end$$;
 reset role;
 select 'PASS: retries, duplicate prevention, lifecycle, optimistic concurrency, task sync, history, conversion, closed lead guard, cross-tenant isolation, client/anon denial and atomic rollback' as result;
 rollback;
