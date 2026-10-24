@@ -17,3 +17,11 @@ test('applies extensions and calculates overdue and compliance correctly', () =>
   assert.equal(gstMatrixDisplayStatus('Unknown', extension, '2026-07-21'), 'Overdue');
   assert.deepEqual(gstComplianceTotals(['Filed', 'Pending', 'Overdue', 'Not Applicable']), { filed: 1, pending: 1, overdue: 1, compliancePercent: 33 });
 });
+
+test('pending returns become overdue after the deadline; filed and exempt remain resolved', () => {
+ const due = { dueDate: '2026-07-20', extended: false };
+ assert.equal(gstMatrixDisplayStatus('Pending', due, '2026-07-21'), 'Overdue');
+ assert.equal(gstMatrixDisplayStatus('Pending', due, '2026-07-20'), 'Pending');
+ assert.equal(gstMatrixDisplayStatus('Filed', due, '2026-07-21'), 'Filed');
+ assert.equal(gstMatrixDisplayStatus('Not Applicable', due, '2026-07-21'), 'Not Applicable');
+});

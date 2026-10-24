@@ -4,7 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "crons": [{ "path": "/api/news-sync", "schedule": "0 2 * * *" }],
-  "functions": { "api/news-sync.ts": { "maxDuration": 60 } },
+  "functions": { "api/news-sync.ts": { "maxDuration": 60 }, "api/notice-draft.ts": { "maxDuration": 60 } },
   "rewrites": [
     {
       "source": "/((?!api/|assets/|branding/|manifest\\.json|robots\\.txt).*)",

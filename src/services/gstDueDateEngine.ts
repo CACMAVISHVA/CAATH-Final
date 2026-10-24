@@ -68,7 +68,8 @@ export const getGSTDueDate = ({
 export type GSTMatrixDisplayStatus = 'Filed' | 'Pending' | 'Not Applicable' | 'Not set' | 'Overdue';
 
 export const gstMatrixDisplayStatus = (status: 'Filed' | 'Pending' | 'Not Applicable' | 'Unknown' | undefined, due: GSTDueDateResult | null, today = isoDate(new Date())): GSTMatrixDisplayStatus => {
-  if (status === 'Filed' || status === 'Pending' || status === 'Not Applicable') return status;
+  if (status === 'Filed' || status === 'Not Applicable') return status;
+  if (status === 'Pending') return due && due.dueDate < today ? 'Overdue' : 'Pending';
   if (!due) return 'Not Applicable';
   return due.dueDate < today ? 'Overdue' : 'Not set';
 };
