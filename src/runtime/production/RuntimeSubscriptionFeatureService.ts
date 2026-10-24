@@ -1,10 +1,10 @@
 import { featureFlagService, FeatureName } from '../../services/featureFlagService';
 import { usageMeteringService } from '../../domains/subscriptions/services/UsageMeteringService';
 
-type PlanTier = 'free' | 'premium' | 'enterprise';
+type PlanTier = 'caath_practice_os';
 
 export class RuntimeSubscriptionFeatureService {
-  isFeatureEnabled(feature: FeatureName, input: { tenantId?: string; plan?: 'Basic' | 'Pro' | 'Enterprise' }): boolean {
+  isFeatureEnabled(feature: FeatureName, input: { tenantId?: string; plan?: 'CAATH Practice OS' }): boolean {
     return featureFlagService.isEnabled(feature, { tenantId: input.tenantId, plan: input.plan });
   }
 

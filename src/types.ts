@@ -23,7 +23,7 @@ export type SubscriptionStatus =
   | 'Suspended'
   | 'Cancelled'
   | 'Rejected';
-export type WorkspaceSubscriptionPlan = 'Starter' | 'Professional' | 'Enterprise';
+export type WorkspaceSubscriptionPlan = 'CAATH Practice OS';
 
 export type ApprovalStatus = 'DRAFT' | 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REWORK' | 'CLIENT_VISIBLE' | 'ARCHIVED';
 export type ApprovalWorkflowStage = 'DRAFT' | 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | 'REWORK' | 'CLIENT_VISIBLE' | 'ARCHIVED';
@@ -52,6 +52,9 @@ export interface User {
 export interface WorkspaceFirm {
   id: string;
   name: string;
+  status: 'Active' | 'Inactive' | 'Suspended' | 'Pending Approval' | 'Rejected';
+  suspensionEffectiveAt?: string;
+  suspensionMode?: 'Grace Period' | 'Immediate Security';
   workspaceCode?: string;
   subscriptionPlan: WorkspaceSubscriptionPlan;
   subscriptionStatus: SubscriptionStatus;
@@ -70,7 +73,7 @@ export interface Firm {
   ownerUserId: string;
   ownerEmail: string;
   status: 'Active' | 'Blocked';
-  subscriptionType: 'Monthly' | 'Yearly';
+  subscriptionType: 'Monthly';
   subscriptionStartDate: string;
   subscriptionExpiryDate: string;
   totalClients: number;
@@ -150,7 +153,7 @@ export interface Subscription {
   id: string;
   firmId: string;
   status: 'Active' | 'Inactive' | 'Trial';
-  plan: 'Basic' | 'Pro' | 'Enterprise';
+  plan: 'CAATH Practice OS';
   nextBillingDate: string;
   amount: number;
 }

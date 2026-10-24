@@ -16,6 +16,7 @@ import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from './Modal';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
+import { useToast } from './Toast';
 import {
   createTask,
   updateTaskStatus,
@@ -32,17 +33,6 @@ import { RoleBasedAssignment } from './RoleBasedAssignment';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { TaskAssignmentControls } from './task-board/TaskAssignmentControls';
 import { TaskWorkloadAnalytics } from './task-board/TaskWorkloadAnalytics';
-import { aiTaskQueueOrchestrator, AITaskQueueItem } from '../domains/ai-task-queue';
-import {
-  cognitiveExecutionOrchestrator,
-  CognitiveExecutionOutput,
-  ExecutionObjective,
-} from '../domains/cognitive-execution';
-import {
-  cognitiveCommandCenterOrchestrator,
-  CognitiveCommandCenterViewModel,
-} from '../domains/cognitive-command-center';
-import { CognitiveExecutionPanel } from './CognitiveExecutionPanel';
 import {
   ALL_STATUS_OPTIONS,
   COLUMNS,
@@ -50,6 +40,7 @@ import {
   PRIORITY_COLORS,
 } from './task-board/constants';
 import { GOVERNMENT_PORTALS } from '../services/governmentPortalService';
+import { ClientType } from '../services/clientService';
 
 interface NewTaskForm {
   title: string;
@@ -60,11 +51,15 @@ interface NewTaskForm {
   portalWorkflowType: string;
   deadline: string;
   clientId: string;
+  newClientName: string;
+  newClientType: ClientType;
+  newClientPan: string;
   assignedTo: string;
 }
 
 export const TaskBoard: React.FC = () => {
   const { user } = useAuth();
+  const toast = useToast();
   const [view, setView] = useState<'board' | 'list'>('board');
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,10 +72,6 @@ export const TaskBoard: React.FC = () => {
   const [showBulkReassign, setShowBulkReassign] = useState(false);
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkReason, setBulkReason] = useState('');
-  const [aiQueue, setAiQueue] = useState<AITaskQueueItem[]>([]);
-  const [executionOutput, setExecutionOutput] = useState<CognitiveExecutionOutput | null>(null);
-  const [commandCenterView, setCommandCenterView] = useState<CognitiveCommandCenterViewModel | null>(null);
-  const [showAiQueue, setShowAiQueue] = useState(false);
 
   const [formData, setFormData] = useState<NewTaskForm>({
     title: '',
@@ -91,6 +82,9 @@ export const TaskBoard: React.FC = () => {
     portalWorkflowType: '',
     deadline: '',
     clientId: '',
+    newClientName: '',
+    newClientType: 'Others',
+    newClientPan: '',
     assignedTo: '',
   });
   const defaultTaskForm: NewTaskForm = {
@@ -102,6 +96,9 @@ export const TaskBoard: React.FC = () => {
     portalWorkflowType: '',
     deadline: '',
     clientId: '',
+    newClientName: '',
+    newClientType: 'Others',
+    newClientPan: '',
     assignedTo: '',
   };
   const hasTaskFormChanges = JSON.stringify(formData) !== JSON.stringify(defaultTaskForm);
@@ -148,9 +145,6 @@ export const TaskBoard: React.FC = () => {
       if (customEvent.detail?.action === 'reassign-work') {
         setShowBulkReassign(true);
       }
-      if (customEvent.detail?.action === 'open-ai-queue') {
-        setShowAiQueue(true);
-      }
     };
     window.addEventListener('caath:quick-action', onQuickAction);
     return () => window.removeEventListener('caath:quick-action', onQuickAction);
@@ -158,11 +152,21 @@ export const TaskBoard: React.FC = () => {
 
   const handleCreateTask = async () => {
     if (!formData.title.trim() || !user) return;
+    const hasNewClient = Boolean(formData.newClientName.trim() || formData.newClientPan.trim());
+    if (!formData.clientId && (!hasNewClient || !formData.newClientName.trim() || !formData.newClientPan.trim())) {
+      toast.error('Client required', 'Select an existing client or enter a new client name and PAN.');
+      return;
+    }
 
     try {
       await createTask({
         firmId: user.firmId!,
         clientId: formData.clientId || undefined,
+        newClient: formData.clientId ? undefined : {
+          name: formData.newClientName.trim(),
+          type: formData.newClientType,
+          pan: formData.newClientPan.trim(),
+        },
         assignedTo: formData.assignedTo || undefined,
         title: formData.title,
         description: formData.description,
@@ -176,10 +180,10 @@ export const TaskBoard: React.FC = () => {
 
       setFormData(defaultTaskForm);
       setShowNewTask(false);
-      loadTasks();
+      await Promise.all([loadTasks(), loadClients()]);
     } catch (error) {
       console.error('Failed to create task:', error);
-      alert(error instanceof Error ? error.message : 'Failed to create task');
+      toast.error('Task creation failed', error instanceof Error ? error.message : 'Please check the details and try again.');
     }
   };
 
@@ -191,6 +195,7 @@ export const TaskBoard: React.FC = () => {
       loadTasks();
     } catch (error) {
       console.error('Failed to update task status:', error);
+      toast.error('Status update failed', error instanceof Error ? error.message : 'Please try again.');
     }
   };
 
@@ -203,6 +208,7 @@ export const TaskBoard: React.FC = () => {
       loadTasks();
     } catch (error) {
       console.error('Failed to delete task:', error);
+      toast.error('Task deletion failed', error instanceof Error ? error.message : 'Please try again.');
     }
   };
 
@@ -215,23 +221,6 @@ export const TaskBoard: React.FC = () => {
       task.description?.toLowerCase().includes(term)
     );
   });
-
-  useEffect(() => {
-    const loadQueue = async () => {
-      if (!user || !user.firmId) return;
-      const queue = await aiTaskQueueOrchestrator.getPrioritizedQueue(user);
-      const execution = cognitiveExecutionOrchestrator.execute({
-        tenantId: user.firmId,
-        queue,
-        objectives: buildExecutionObjectives(tasks, queue),
-        actorRole: user.role,
-      });
-      setExecutionOutput(execution);
-      setCommandCenterView(cognitiveCommandCenterOrchestrator.toViewModel({ output: execution }));
-      setAiQueue(execution.influencedQueue);
-    };
-    loadQueue();
-  }, [user, tasks]);
 
   const getTaskCounts = () => {
     return COLUMNS.map((col) => ({
@@ -264,27 +253,23 @@ export const TaskBoard: React.FC = () => {
       loadTasks();
     } catch (error) {
       console.error('Bulk reassignment failed:', error);
+      toast.error('Reassignment failed', error instanceof Error ? error.message : 'Please check the assignee and try again.');
     }
   };
 
   return (
-    <div className="p-8 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold gold-text-gradient">Tasks & Workflows</h2>
           <p className="text-slate-500">Assign tasks, track progress, and manage recurring workflows.</p>
-          {executionOutput && (
-            <p className="mt-1 text-xs text-slate-400 uppercase tracking-wider">
-              Cognitive handoffs: {executionOutput.handoffActions.length} • Review required:{' '}
-              {executionOutput.handoffActions.filter((action) => action.governanceStatus === 'needs-review').length}
-            </p>
-          )}
         </div>
         <div className="flex gap-3">
           <div className="flex bg-matte-black-light border border-slate-800 rounded-lg p-1">
             <button
               onClick={() => setView('board')}
+              aria-label="Board view"
               className={cn(
                 "p-1.5 rounded-md transition-all",
                 view === 'board' ? "bg-gold/10 text-gold" : "text-slate-400 hover:text-slate-200"
@@ -294,6 +279,7 @@ export const TaskBoard: React.FC = () => {
             </button>
             <button
               onClick={() => setView('list')}
+              aria-label="List view"
               className={cn(
                 "p-1.5 rounded-md transition-all",
                 view === 'list' ? "bg-gold/10 text-gold" : "text-slate-400 hover:text-slate-200"
@@ -324,38 +310,6 @@ export const TaskBoard: React.FC = () => {
         escalated={filteredTasks.filter((t) => t.status === 'Escalated').length}
         completed={filteredTasks.filter((t) => normalizeStatusForColumns(t.status) === 'Completed').length}
       />
-      {commandCenterView && (
-        <CognitiveExecutionPanel viewModel={commandCenterView} />
-      )}
-      {showAiQueue && (
-        <div className="rounded-2xl border border-slate-800 bg-matte-black-light p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">AI Task Queue</p>
-            <button onClick={() => setShowAiQueue(false)} className="text-xs text-slate-400 hover:text-white">Hide</button>
-          </div>
-          {aiQueue.length === 0 ? (
-            <p className="text-sm text-slate-500">No AI-prioritized queue items available.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {aiQueue.slice(0, 8).map((item) => (
-                <div key={item.taskId} className="p-3 rounded-xl border border-slate-800 bg-slate-950/60">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-bold text-white">{item.title}</p>
-                    <span className="text-[10px] text-gold uppercase">{item.recommendedAction}</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">{item.explanation}</p>
-                  <div className="mt-2 flex gap-2 text-[11px]">
-                    <span className="px-2 py-1 bg-slate-900 text-slate-300 rounded">Urgency {item.urgencyScore}</span>
-                    <span className="px-2 py-1 bg-slate-900 text-amber-300 rounded">SLA {item.slaBreachProbability}%</span>
-                    <span className="px-2 py-1 bg-slate-900 text-red-300 rounded">Esc {item.escalationScore}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Loading State */}
       {loading && (
         <div className="flex items-center justify-center py-12">
@@ -427,7 +381,7 @@ export const TaskBoard: React.FC = () => {
                     </div>
                   </motion.div>
                 ))}
-                {filteredTasks.filter((t) => t.status === column.id).length === 0 && (
+                {filteredTasks.filter((t) => normalizeStatusForColumns(t.status) === column.id).length === 0 && (
                   <div className="p-4 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
                     No tasks
                   </div>
@@ -440,11 +394,15 @@ export const TaskBoard: React.FC = () => {
 
       {/* List View */}
       {!loading && view === 'list' && (
-        <div className="bg-matte-black-light rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
-          <table className="w-full text-left border-collapse">
+        <div className="bg-matte-black-light rounded-2xl border border-slate-800 shadow-2xl overflow-x-auto">
+          <table className="min-w-[760px] w-full table-fixed text-left border-collapse">
+            <colgroup>
+              <col className="w-[6%]" /><col className="w-[39%]" /><col className="w-[14%]" />
+              <col className="w-[18%]" /><col className="w-[13%]" /><col className="w-[10%]" />
+            </colgroup>
             <thead>
               <tr className="bg-matte-black border-b border-slate-800">
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">
                   <input
                     type="checkbox"
                     checked={selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0}
@@ -458,17 +416,17 @@ export const TaskBoard: React.FC = () => {
                     className="text-gold"
                   />
                 </th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Task Title</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Priority</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Deadline</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Task Title</th>
+                <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Priority</th>
+                <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Deadline</th>
+                <th className="sticky right-0 z-20 bg-matte-black px-4 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
               {filteredTasks.map((task) => (
                 <tr key={task.id} className="hover:bg-matte-black transition-colors cursor-pointer">
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4">
                     <input
                       type="checkbox"
                       checked={selectedTaskIds.includes(task.id)}
@@ -479,11 +437,11 @@ export const TaskBoard: React.FC = () => {
                       className="text-gold"
                     />
                   </td>
-                  <td className="px-6 py-4" onClick={() => setSelectedTask(task)}>
+                  <td className="px-4 py-4" onClick={() => setSelectedTask(task)}>
                     <p className="text-sm font-bold text-white">{task.title}</p>
                     <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">{task.category || 'Uncategorized'}</p>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4">
                     <span className={cn(
                       "px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider",
                       PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.Medium
@@ -491,7 +449,7 @@ export const TaskBoard: React.FC = () => {
                       {task.priority}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4">
                     <div className="flex items-center gap-2">
                       <div className={cn(
                         "w-2 h-2 rounded-full",
@@ -507,12 +465,12 @@ export const TaskBoard: React.FC = () => {
                       <span className="text-xs font-medium text-slate-300">{task.status}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4">
                     <p className="text-sm text-slate-400 font-medium">
                       {task.deadline ? new Date(task.deadline).toLocaleDateString() : '-'}
                     </p>
                   </td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="sticky right-0 z-10 bg-matte-black-light px-4 py-4 text-right transition-colors hover:bg-matte-black">
                     <button
                       onClick={() => setDeleteTaskId(task.id)}
                       className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
@@ -638,17 +596,18 @@ export const TaskBoard: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-slate-400 mb-2 block">Client</label>
+                  <label className="text-sm text-slate-400 mb-2 block">Existing Client</label>
                   <select
                     value={formData.clientId}
-                    onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, clientId: e.target.value, newClientName: '', newClientPan: '' })}
                     className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
                   >
-                    <option value="">No Client</option>
+                    <option value="">Select an existing client</option>
                     {clients.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                  <p className="mt-2 text-xs text-slate-500">Or add a new client below; it will be created and linked automatically.</p>
                 </div>
 
                 <div>
@@ -661,6 +620,52 @@ export const TaskBoard: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {!formData.clientId && (
+                <div className="rounded-xl border border-gold/30 bg-gold/5 p-4">
+                  <p className="mb-3 text-sm font-bold text-gold">New client to create with this task</p>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div>
+                      <label className="mb-2 block text-sm text-slate-400">Client name *</label>
+                      <input
+                        type="text"
+                        value={formData.newClientName}
+                        onChange={(e) => setFormData({ ...formData, newClientName: e.target.value })}
+                        placeholder="Legal client name"
+                        className="w-full rounded-xl border border-slate-700 bg-matte-black p-3 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm text-slate-400">Business type *</label>
+                      <select
+                        value={formData.newClientType}
+                        onChange={(e) => setFormData({ ...formData, newClientType: e.target.value as ClientType })}
+                        className="w-full rounded-xl border border-slate-700 bg-matte-black p-3 text-white"
+                      >
+                        <option value="Proprietorship">Proprietorship</option>
+                        <option value="Partnership Firm">Partnership Firm</option>
+                        <option value="LLP">LLP</option>
+                        <option value="Private Limited Company">Private Limited Company</option>
+                        <option value="Public Company">Public Company</option>
+                        <option value="Trust">Trust</option>
+                        <option value="NGO">NGO</option>
+                        <option value="Others">Others</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm text-slate-400">PAN *</label>
+                      <input
+                        type="text"
+                        value={formData.newClientPan}
+                        onChange={(e) => setFormData({ ...formData, newClientPan: e.target.value.toUpperCase() })}
+                        placeholder="ABCDE1234F"
+                        maxLength={10}
+                        className="w-full rounded-xl border border-slate-700 bg-matte-black p-3 text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-sm text-slate-400 mb-2 block">Deadline</label>
@@ -694,7 +699,7 @@ export const TaskBoard: React.FC = () => {
         isOpen={showBulkReassign}
         onClose={() => setShowBulkReassign(false)}
         title="Bulk Reassign Tasks"
-        description="Reassign selected work items across the enterprise and capture the reason for audit."
+        description="Reassign selected tasks and record the reason in the audit trail."
         size="lg"
       >
             <div className="space-y-4">
@@ -773,35 +778,4 @@ export const TaskBoard: React.FC = () => {
       />
     </div>
   );
-};
-
-const buildExecutionObjectives = (tasks: TaskRow[], queue: AITaskQueueItem[]): ExecutionObjective[] => {
-  const openTasks = tasks.filter((task) => task.status !== 'Completed');
-  const overdue = openTasks.filter((task) => task.deadline && new Date(task.deadline) < new Date()).length;
-  const highRiskQueue = queue.filter((item) => item.slaBreachProbability >= 70).length;
-  const escalations = openTasks.filter((task) => task.status === 'Escalated').length;
-
-  return [
-    {
-      id: 'sla-stabilization',
-      name: 'SLA Stabilization',
-      target: 95,
-      current: Math.max(0, 100 - overdue * 6 - highRiskQueue * 3),
-      weight: 0.45,
-    },
-    {
-      id: 'escalation-reduction',
-      name: 'Escalation Reduction',
-      target: 92,
-      current: Math.max(0, 100 - escalations * 14),
-      weight: 0.35,
-    },
-    {
-      id: 'workflow-flow-efficiency',
-      name: 'Workflow Flow Efficiency',
-      target: 90,
-      current: Math.max(0, 100 - Math.max(0, openTasks.length - 25) * 2),
-      weight: 0.2,
-    },
-  ];
 };

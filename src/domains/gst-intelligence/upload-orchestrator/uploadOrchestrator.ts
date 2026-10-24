@@ -6,6 +6,25 @@ export interface UploadSessionDatasetState {
   status: 'pending' | 'uploaded' | 'parsed' | 'validated' | 'ready' | 'failed';
   fileName?: string;
   message?: string;
+  parseSummary?: {
+    records: number;
+    parser: string;
+    normalizedSchema: string;
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+    duplicateInvoices: number;
+    taxableValue: number;
+    taxAmount: number;
+    gstins: string[];
+    invoices: Array<{
+      invoiceNumber: string;
+      gstin: string;
+      invoiceDate: string | null;
+      taxableValue: number;
+      taxAmount: number;
+    }>;
+  };
 }
 
 export interface UploadSessionState {
@@ -39,6 +58,26 @@ export const markDatasetUploaded = (
   ...session,
   datasets: session.datasets.map((item) => item.dataset === dataset
     ? { ...item, status: 'uploaded', fileName, message: `Uploaded ${fileName}. Parsing queued.` }
+    : item),
+});
+
+export const markDatasetParsed = (
+  session: UploadSessionState,
+  dataset: GSTDatasetType,
+  fileName: string,
+  parseSummary: NonNullable<UploadSessionDatasetState['parseSummary']>,
+): UploadSessionState => ({
+  ...session,
+  datasets: session.datasets.map((item) => item.dataset === dataset
+    ? {
+      ...item,
+      status: parseSummary.valid ? 'parsed' : 'failed',
+      fileName,
+      parseSummary,
+      message: parseSummary.valid
+        ? `${parseSummary.records} record(s) parsed and validated.`
+        : parseSummary.errors.join(' '),
+    }
     : item),
 });
 

@@ -159,7 +159,11 @@ export const AuditLog: React.FC = () => {
 
       <div className="bg-matte-black-light rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="min-w-[940px] w-full table-fixed text-left border-collapse">
+            <colgroup>
+              <col className="w-[16%]" /><col className="w-[21%]" /><col className="w-[18%]" />
+              <col className="w-[16%]" /><col className="w-[29%]" />
+            </colgroup>
             <thead>
               <tr className="bg-matte-black border-b border-slate-800">
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Timestamp</th>
@@ -211,7 +215,7 @@ export const AuditLog: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <p className="text-xs text-slate-400 max-w-md">{log.details}</p>
+                    <p className="max-w-md break-words text-xs text-slate-400">{log.details}</p>
                     {log.ipAddress && (
                       <p className="text-[10px] text-slate-600 font-mono mt-1">IP: {log.ipAddress}</p>
                     )}

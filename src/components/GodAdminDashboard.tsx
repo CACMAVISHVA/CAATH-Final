@@ -11,7 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from './Toast';
 import { usePortalActivity } from '../hooks/usePortalActivity';
 import { FirmOperationsPanel, FirmRow } from './god-admin/FirmOperationsPanel';
-import { SubscriptionManagementPanel, SubscriptionRow } from './god-admin/SubscriptionManagementPanel';
+import { SubscriptionManagementPanel } from './god-admin/SubscriptionManagementPanel';
 import { AuditLogsPanel, AuditRow } from './god-admin/AuditLogsPanel';
 import { SystemNoticePublisher } from './god-admin/SystemNoticePublisher';
 import { FirmConfirmationModal } from './god-admin/FirmConfirmationModal';
@@ -21,6 +21,8 @@ import { ControlTowerModule } from './god-admin/ControlTowerModule';
 import { UsageMonitoringModule } from './god-admin/UsageMonitoringModule';
 import { PlatformConfigModule } from './god-admin/PlatformConfigModule';
 import { FirmProvisioningPanel } from './god-admin/FirmProvisioningPanel';
+import { PlatformRegulatoryPublisher } from './god-admin/PlatformRegulatoryPublisher';
+import { AccountingAddonManagementPanel } from './god-admin/AccountingAddonManagementPanel';
 import { RuntimeHealthSnapshot, runtimeKernel } from '../runtime/production';
 import {
   loadControlTowerSnapshot,
@@ -96,11 +98,12 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
   const [noticeText, setNoticeText] = useState('');
 
   // Modal state
-  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; firm: FirmRow | null; action: 'suspend' | 'reactivate'; reason: string }>({
+  const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; firm: FirmRow | null; action: 'suspend' | 'reactivate'; reason: string; immediate: boolean }>({
     isOpen: false,
     firm: null,
     action: 'suspend',
     reason: '',
+    immediate: false,
   });
 
   const [drilldownModal, setDrilldownModal] = useState<{
@@ -124,8 +127,9 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
     setIsLoading(true);
     setMessage(null);
 
-    const [firmResult, subscriptionResult, requestResult, invoiceResult, settingsResult, auditResult, controlTower, usage, config] = await Promise.all([
+    const [firmResult, ownerResult, subscriptionResult, requestResult, invoiceResult, settingsResult, auditResult, controlTower, usage, config] = await Promise.all([
       supabase.from('firms').select('id, name, firm_name, gstin, status, created_at').order('created_at', { ascending: false }),
+      supabase.from('users').select('firm_id, name, email, status').eq('is_workspace_owner', true),
       supabase.from('subscriptions').select('id, firm_id, plan, status, amount, starts_at, expires_at').order('created_at', { ascending: false }),
       listSubscriptionRequests(),
       listSubscriptionInvoices(),
@@ -137,7 +141,14 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
     ]);
 
     if (firmResult.error) setMessage(firmResult.error.message);
-    else setFirms((firmResult.data || []) as FirmRow[]);
+    else {
+      const owners = new Map((ownerResult.data || []).map((owner) => [owner.firm_id, owner]));
+      setFirms((firmResult.data || []).map((firm) => ({
+        ...firm,
+        owner_name: owners.get(firm.id)?.name || null,
+        owner_email: owners.get(firm.id)?.email || null,
+      })) as FirmRow[]);
+    }
 
     if (!subscriptionResult.error) {
       setSubscriptions((subscriptionResult.data || []) as unknown as Subscription[]);
@@ -195,14 +206,18 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
     try {
       const updateData: Record<string, unknown> = {
         status: nextStatus,
-        updated_by: user.id,
+        updated_by: user.authId || null,
         updated_at: new Date().toISOString(),
       };
 
       if (action === 'suspend') {
+        const effectiveAt = new Date();
+        if (!confirmModal.immediate) effectiveAt.setDate(effectiveAt.getDate() + 30);
         updateData.suspension_reason = reason || 'No reason provided';
         updateData.suspended_at = new Date().toISOString();
         updateData.suspended_by = user.id;
+        updateData.suspension_effective_at = effectiveAt.toISOString();
+        updateData.suspension_mode = confirmModal.immediate ? 'Immediate Security' : 'Grace Period';
         updateData.reactivated_at = null;
         updateData.reactivated_by = null;
       } else {
@@ -211,27 +226,37 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
         updateData.suspension_reason = null;
         updateData.suspended_at = null;
         updateData.suspended_by = null;
+        updateData.suspension_effective_at = null;
+        updateData.suspension_mode = null;
       }
 
-      const { error } = await supabase.from('firms').update(updateData).eq('id', firm.id);
+      const { data: updatedFirm, error } = await supabase.from('firms').update(updateData).eq('id', firm.id).select('id, status').maybeSingle();
       if (error) throw error;
+      if (!updatedFirm) throw new Error('Firm status was not changed. Refresh and try again.');
 
       await writePlatformAudit({
         firmId: firm.id,
         action: nextStatus === 'Suspended' ? 'Firm Suspended' : 'Firm Reactivated',
         entityType: 'Firm',
         entityId: firm.id,
-        details: `Tenant ${formatTenantDisplayId(firm.id)} marked as ${nextStatus} by GodAdmin.`,
+        details: `Tenant ${formatTenantDisplayId(firm.id)} marked as ${nextStatus} by GodAdmin${action === 'suspend' ? (confirmModal.immediate ? ' with immediate security enforcement.' : ' with a 30-day grace period.') : '.'}`,
       });
 
       setFirms((current) => current.map((item) => item.id === firm.id ? { ...item, status: nextStatus } : item));
-      setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '' });
+      setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '', immediate: false });
       toast.success(
         action === 'suspend' ? 'Firm Suspended' : 'Firm Reactivated',
-        `Tenant ${formatTenantDisplayId(firm.id)} has been ${nextStatus.toLowerCase()}.`
+        action === 'suspend' && !confirmModal.immediate
+          ? `Tenant ${formatTenantDisplayId(firm.id)} has a 30-day grace period before access is blocked.`
+          : `Tenant ${formatTenantDisplayId(firm.id)} has been ${nextStatus.toLowerCase()}.`
       );
     } catch (error) {
-      toast.error('Update Failed', error instanceof Error ? error.message : 'Firm status update failed.');
+      const message = error instanceof Error
+        ? error.message
+        : error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+          ? error.message
+          : 'Firm status update failed.';
+      toast.error('Update Failed', message);
     } finally {
       setBusyAction(null);
     }
@@ -397,7 +422,13 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
       return <PlatformConfigModule snapshot={configSnapshot} />;
     }
     if (activeTab === 'firms') {
-      return <FirmOperationsPanel firms={firms} busyAction={busyAction} onSuspendClick={(firm, action) => setConfirmModal({ isOpen: true, firm, action, reason: '' })} />;
+      return (
+        <FirmOperationsPanel
+          firms={firms}
+          busyAction={busyAction}
+          onSuspendClick={(firm, action) => setConfirmModal({ isOpen: true, firm, action, reason: '', immediate: false })}
+        />
+      );
     }
     if (activeTab === 'provisioning') {
       return <FirmProvisioningPanel onProvisioned={loadPlatformData} />;
@@ -411,6 +442,7 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
           firms={firms}
           platformSettings={platformSettings}
           busyAction={busyAction}
+          focusedRequestId={new URLSearchParams(window.location.search).get('request')}
           onApproveRequest={approveSubscriptionRequestAction}
           onRejectRequest={rejectSubscriptionRequestAction}
           onManualActivate={manuallyActivateSubscriptionAction}
@@ -418,10 +450,12 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
         />
       );
     }
+    if (activeTab === 'accounting-addons') return <AccountingAddonManagementPanel />;
     if (activeTab === 'platform-audit') return <AuditLogsPanel auditLogs={auditLogs} />;
     if (activeTab === 'system-notices') {
       return <SystemNoticePublisher noticeText={noticeText} onNoticeTextChange={setNoticeText} onPublish={publishSystemNotice} isLoading={busyAction === 'system-notice'} />;
     }
+    if (activeTab === 'platform-regulatory-updates') return <PlatformRegulatoryPublisher />;
 
     return (
       <ControlTowerModule
@@ -436,15 +470,15 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
   };
 
   return (
-    <div className="p-8 space-y-8 h-full bg-matte-black text-slate-300 overflow-y-auto">
-      <div className="flex items-center justify-between gap-6">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:space-y-8 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-start gap-3 sm:items-center">
             <div className="w-11 h-11 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center text-gold">
               <Activity className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-3xl font-bold gold-text-gradient">CAATH Platform Control Tower</h2>
+              <h2 className="text-2xl font-bold gold-text-gradient sm:text-3xl">CAATH Platform Control Tower</h2>
               <p className="text-sm text-slate-500">Multi-firm SaaS operations, subscriptions, usage, and platform governance.</p>
             </div>
           </div>
@@ -452,7 +486,7 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
         <button
           onClick={loadPlatformData}
           disabled={isLoading}
-          className="px-4 py-2 bg-matte-black-light border border-slate-800 rounded-xl text-sm font-bold text-slate-400 hover:text-gold disabled:opacity-50"
+          className="w-full px-4 py-2 bg-matte-black-light border border-slate-800 rounded-xl text-sm font-bold text-slate-400 hover:text-gold disabled:opacity-50 sm:w-auto"
         >
           Refresh
         </button>
@@ -478,8 +512,10 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
         action={confirmModal.action}
         reason={confirmModal.reason}
         onReasonChange={(reason) => setConfirmModal({ ...confirmModal, reason })}
+        immediate={confirmModal.immediate}
+        onImmediateChange={(immediate) => setConfirmModal({ ...confirmModal, immediate })}
         onConfirm={handleConfirmAction}
-        onCancel={() => setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '' })}
+        onCancel={() => setConfirmModal({ isOpen: false, firm: null, action: 'suspend', reason: '', immediate: false })}
         isLoading={busyAction !== null}
       />
 
@@ -492,10 +528,9 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
         onClose={() => setDrilldownModal({ isOpen: false, type: 'active', title: '' })}
         onExportCSV={handleExportCSV}
         onReactivate={(firm) => {
-          setConfirmModal({ isOpen: true, firm, action: 'reactivate', reason: '' });
+          setConfirmModal({ isOpen: true, firm, action: 'reactivate', reason: '', immediate: false });
           setDrilldownModal({ isOpen: false, type: 'active', title: '' });
         }}
-        onApprove={() => undefined}
         firms={firms}
         subscriptions={subscriptions}
       />

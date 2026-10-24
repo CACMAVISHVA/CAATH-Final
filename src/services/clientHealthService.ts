@@ -96,12 +96,17 @@ export const calculateClientHealth = async (clientId: string, firmId: string): P
 };
 
 export const getClientStats = async (clientId: string, firmId: string): Promise<ClientStats> => {
-  // Tasks
-  const { data: tasks } = await supabase
-    .from('tasks')
-    .select('*')
-    .eq('client_id', clientId)
-    .eq('firm_id', firmId);
+  const [
+    { data: tasks },
+    { data: invoices },
+    { data: filings },
+    { count: documentsCount },
+  ] = await Promise.all([
+    supabase.from('tasks').select('*').eq('client_id', clientId).eq('firm_id', firmId),
+    supabase.from('invoices').select('total, pending_amount, status').eq('client_id', clientId).eq('firm_id', firmId),
+    supabase.from('gst_return_statuses').select('status, due_date').eq('client_id', clientId).eq('firm_id', firmId),
+    supabase.from('documents').select('*', { count: 'exact', head: true }).eq('client_id', clientId).eq('firm_id', firmId),
+  ]);
 
   const activeTasks = tasks?.filter(t => t.status !== 'Completed').length || 0;
   const completedTasks = tasks?.filter(t => t.status === 'Completed').length || 0;
@@ -111,17 +116,18 @@ export const getClientStats = async (clientId: string, firmId: string): Promise<
     new Date(t.deadline) < new Date()
   ).length || 0;
 
-  // Mock billing data (would come from billing service)
-  const totalRevenue = 1250000;
-  const pendingPayments = 185000;
-  const overdueAmount = 45000;
+  const activeInvoices = (invoices || []).filter((invoice) => invoice.status !== 'Cancelled');
+  const totalRevenue = activeInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
+  const pendingPayments = activeInvoices.reduce((sum, invoice) => sum + Number(invoice.pending_amount || 0), 0);
+  const overdueAmount = activeInvoices
+    .filter((invoice) => invoice.status === 'Overdue')
+    .reduce((sum, invoice) => sum + Number(invoice.pending_amount || 0), 0);
 
-  // Mock compliance data
-  const upcomingFilings = 4;
-  const overdueFilings = 1;
-
-  // Mock document data
-  const pendingDocuments = 3;
+  const today = new Date();
+  const openFilings = (filings || []).filter((filing) => filing.status !== 'Filed');
+  const overdueFilings = openFilings.filter((filing) => filing.due_date && new Date(filing.due_date) < today).length;
+  const upcomingFilings = openFilings.filter((filing) => !filing.due_date || new Date(filing.due_date) >= today).length;
+  const pendingDocuments = documentsCount || 0;
 
   return {
     totalRevenue,

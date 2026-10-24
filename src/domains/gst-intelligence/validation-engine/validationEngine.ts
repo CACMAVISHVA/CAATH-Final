@@ -38,18 +38,20 @@ export const runGSTValidation = (params: {
     status: params.filingPeriod ? 'pass' : 'fail',
     detail: params.filingPeriod ? `Selected period "${params.filingPeriod}" mapped under ${params.financialYear}.` : 'Filing period is required.',
   });
-  const duplicates = params.artifacts.some((a) => a.records > 1000);
+  const duplicates = params.artifacts.reduce((total, artifact) => total + artifact.duplicateInvoices, 0);
   checks.push({
     id: 'duplicate-scan',
     label: 'Duplicate invoice detection',
-    status: duplicates ? 'warning' : 'pass',
-    detail: duplicates ? 'Potential duplicate clusters detected in high-volume datasets.' : 'No duplicate-heavy clusters detected.',
+    status: duplicates > 0 ? 'warning' : 'pass',
+    detail: duplicates > 0 ? `${duplicates} duplicate invoice row(s) require review.` : 'No duplicate invoice numbers detected.',
   });
   checks.push({
     id: 'schema-integrity',
     label: 'Schema integrity',
-    status: params.artifacts.length > 0 ? 'pass' : 'fail',
-    detail: params.artifacts.length > 0 ? `${params.artifacts.length} dataset(s) parsed and normalized successfully.` : 'No parsed datasets available.',
+    status: params.artifacts.length > 0 && params.artifacts.every((artifact) => artifact.valid) ? 'pass' : 'fail',
+    detail: params.artifacts.length > 0 && params.artifacts.every((artifact) => artifact.valid)
+      ? `${params.artifacts.length} dataset(s) parsed and normalized successfully.`
+      : 'No fully validated parsed datasets are available.',
   });
   const readyForIntelligence = checks.every((check) => check.status !== 'fail');
   return { checks, readyForIntelligence };

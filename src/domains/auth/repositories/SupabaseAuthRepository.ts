@@ -1,4 +1,4 @@
-import { Session } from '@supabase/supabase-js';
+import { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { supabase } from '../../../lib/supabase';
 import { IAuthRepository } from '../../../infrastructure/repositories/interfaces/IAuthRepository';
 
@@ -45,12 +45,12 @@ export class SupabaseAuthRepository implements IAuthRepository {
     return data.user;
   }
 
-  onAuthStateChange(handler: (session: Session | null) => void): () => void {
+  onAuthStateChange(handler: (event: AuthChangeEvent, session: Session | null) => void): () => void {
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         console.info('[AUTH] Session created', { event, userId: session.user.id });
       }
-      handler(session);
+      handler(event, session);
     });
     return () => data.subscription.unsubscribe();
   }

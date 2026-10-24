@@ -20,11 +20,6 @@ export const uploadDocument = async (input: DocumentUploadInput): Promise<Docume
 
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-  // Get public URL
-  const { data: { publicUrl } } = supabase.storage
-    .from('documents')
-    .getPublicUrl(fileName);
-
   // Insert document record
   const { data, error } = await supabase
     .from('document_vault')
@@ -34,7 +29,7 @@ export const uploadDocument = async (input: DocumentUploadInput): Promise<Docume
       category,
       document_type: documentType,
       name: file.name,
-      file_path: publicUrl,
+      file_path: fileName,
       file_size: file.size,
       mime_type: file.type,
       linked_task_id: linking.linkedTaskId || null,
@@ -52,7 +47,13 @@ export const uploadDocument = async (input: DocumentUploadInput): Promise<Docume
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    // Keep Storage and the document index consistent when metadata persistence
+    // fails after the binary has already been uploaded.
+    const { error: cleanupError } = await supabase.storage.from('documents').remove([fileName]);
+    if (cleanupError) console.warn('Failed to clean up an incomplete document upload:', cleanupError);
+    throw error;
+  }
 
   // Write audit log
   await writeDocumentAudit({
@@ -87,8 +88,11 @@ export const getDocuments = async (params: DocumentSearchParams): Promise<Docume
   let query = supabase
     .from('document_vault')
     .select('*')
-    .eq('firm_id', params.firmId)
-    .eq('is_deleted', params.includeDeleted ? false : false);
+    .eq('firm_id', params.firmId);
+
+  if (!params.includeDeleted) {
+    query = query.eq('is_deleted', false);
+  }
 
   if (params.clientId) {
     query = query.eq('client_id', params.clientId);
@@ -149,26 +153,30 @@ export const getClientDocuments = async (clientId: string): Promise<DocumentVaul
   return (data || []) as DocumentVaultFile[];
 };
 
-export const getArchivedDocuments = async (firmId: string): Promise<DocumentVaultFile[]> => {
-  const { data, error } = await supabase
+export const getArchivedDocuments = async (firmId: string, clientId?: string): Promise<DocumentVaultFile[]> => {
+  let query = supabase
     .from('document_vault')
     .select('*')
     .eq('firm_id', firmId)
     .eq('is_archived', true)
-    .eq('is_deleted', false)
-    .order('created_at', { ascending: false });
+    .eq('is_deleted', false);
+
+  if (clientId) query = query.eq('client_id', clientId);
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) throw error;
   return (data || []) as DocumentVaultFile[];
 };
 
-export const getDeletedDocuments = async (firmId: string): Promise<DocumentVaultFile[]> => {
-  const { data, error } = await supabase
+export const getDeletedDocuments = async (firmId: string, clientId?: string): Promise<DocumentVaultFile[]> => {
+  let query = supabase
     .from('document_vault')
     .select('*')
     .eq('firm_id', firmId)
-    .eq('is_deleted', true)
-    .order('created_at', { ascending: false });
+    .eq('is_deleted', true);
+
+  if (clientId) query = query.eq('client_id', clientId);
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) throw error;
   return (data || []) as DocumentVaultFile[];

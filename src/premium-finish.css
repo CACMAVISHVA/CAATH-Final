@@ -1,0 +1,90 @@
+/*
+ * CAATH premium finish — removable cosmetic layer, October 2026.
+ * Preserve all palette values, gradients, fonts, dimensions, radii and layout.
+ * Only light/shadow, rendering and interaction feedback are refined here.
+ * Every rule is opt-in and screen-only so classic mode and printed invoices
+ * retain their original appearance. Do not add sizing or positioning rules.
+ */
+@media screen {
+  html[data-ui-finish="premium"] #root {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* A fine inner edge and soft ambient shadow separate existing dark panels. */
+  html[data-ui-finish="premium"] :where(div, section, article).bg-matte-black-light.border,
+  html[data-ui-finish="premium"] .premium-surface {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.045),
+      inset 0 -1px 0 rgb(0 0 0 / 0.16),
+      0 2px 4px rgb(0 0 0 / 0.12),
+      0 12px 28px -18px rgb(0 0 0 / 0.48);
+  }
+
+  /* Preserve navigation widths and positions; define the existing boundaries. */
+  html[data-ui-finish="premium"] aside {
+    box-shadow: var(--tw-ring-shadow, 0 0 #0000), 6px 0 22px -14px rgb(0 0 0 / 0.5) !important;
+  }
+
+  html[data-ui-finish="premium"] header {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.025), 0 5px 16px -13px rgb(0 0 0 / 0.6);
+  }
+
+  html[data-ui-finish="premium"] :where(h1, h2, h3, h4):not(.gold-text-gradient) {
+    text-shadow: 0 1px 1px rgb(0 0 0 / 0.18);
+  }
+
+  /* The original metallic gold gradient stays intact, with a more precise edge. */
+  html[data-ui-finish="premium"] :is(button, a).bg-gold {
+    box-shadow: var(--tw-ring-shadow, 0 0 #0000),
+      inset 0 1px 0 rgb(255 250 222 / 0.58),
+      inset 0 -1px 0 rgb(0 0 0 / 0.22),
+      0 2px 4px rgb(0 0 0 / 0.2),
+      0 6px 16px -8px rgb(164 109 20 / 0.3);
+  }
+
+  html[data-ui-finish="premium"] :is(button, a).bg-gold:active:not(:disabled):not([aria-disabled="true"]) {
+    box-shadow: var(--tw-ring-shadow, 0 0 #0000), inset 0 2px 4px rgb(0 0 0 / 0.22);
+  }
+
+  html[data-ui-finish="premium"] :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), select, textarea) {
+    box-shadow: var(--tw-ring-shadow, 0 0 #0000),
+      inset 0 1px 3px rgb(0 0 0 / 0.18), 0 1px 0 rgb(255 255 255 / 0.025);
+  }
+
+  /* Focus uses the existing gold; outlines never alter the control's geometry. */
+  html[data-ui-finish="premium"] :where(button, a, input, select, textarea, [role="button"]):focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 3px;
+  }
+
+  html[data-ui-finish="premium"] thead {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035), inset 0 -1px 0 rgb(255 255 255 / 0.06);
+  }
+
+  html[data-ui-finish="premium"] [role="dialog"] {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.065),
+      0 8px 24px rgb(0 0 0 / 0.28), 0 32px 80px -16px rgb(0 0 0 / 0.58) !important;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    html[data-ui-finish="premium"] :is(button, a).bg-gold:hover:not(:disabled):not([aria-disabled="true"]) {
+      box-shadow: var(--tw-ring-shadow, 0 0 #0000),
+        inset 0 1px 0 rgb(255 250 222 / 0.7), inset 0 -1px 0 rgb(0 0 0 / 0.22),
+        0 3px 6px rgb(0 0 0 / 0.22), 0 9px 20px -9px rgb(164 109 20 / 0.4);
+    }
+
+    html[data-ui-finish="premium"] tbody tr:hover {
+      box-shadow: inset 0 0 0 9999px rgb(255 255 255 / 0.018);
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html[data-ui-finish="premium"] :where(input, select, textarea) {
+      transition: border-color 160ms ease, box-shadow 160ms ease, outline-color 160ms ease;
+    }
+    html[data-ui-finish="premium"] tbody tr {
+      transition: box-shadow 160ms ease;
+    }
+  }
+}

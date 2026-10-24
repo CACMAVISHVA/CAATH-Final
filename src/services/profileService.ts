@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { notifyApprovalComplete, notifyApprovalRequired } from './notificationService';
 import { approveApprovalTask, getApprovalTaskById, rejectApprovalTask } from './approvalTaskService';
 import { User } from '../types';
+import { firstValidationError, validateEmail, validateRequiredName } from '../lib/fieldValidation';
 
 export interface FirmRecord {
   id: string;
@@ -63,6 +64,12 @@ export const updateOwnProfile = async (
   userId: string,
   updates: { name: string; email: string }
 ): Promise<void> => {
+  const validationError = firstValidationError(
+    validateRequiredName(updates.name, 'Name'),
+    validateEmail(updates.email),
+  );
+  if (validationError) throw new Error(validationError);
+
   const { error } = await supabase
     .from('users')
     .update({ name: updates.name.trim(), email: updates.email.trim(), updated_at: new Date().toISOString() })
@@ -79,6 +86,12 @@ export const submitProfileChangeRequest = async (
   requestedEmail: string,
   reason: string
 ): Promise<void> => {
+  const validationError = firstValidationError(
+    validateRequiredName(requestedName, 'Name'),
+    validateEmail(requestedEmail),
+  );
+  if (validationError) throw new Error(validationError);
+
   if (!reason.trim()) {
     throw new Error('Please provide a reason for the profile change request.');
   }

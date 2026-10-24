@@ -6,7 +6,7 @@ import { authProfileRepository } from '../repositories/SupabaseAuthProfileReposi
 import { authSecurityService } from '../../../services/authSecurityService';
 
 const authRepository = new SupabaseAuthRepository();
-export const PROFILE_SETUP_INCOMPLETE_MESSAGE = 'Profile not found. Workspace setup incomplete.';
+export const PROFILE_SETUP_INCOMPLETE_MESSAGE = 'We could not finish loading your workspace. Please try again. If this continues, contact CAATH support.';
 
 export const authService = {
   async login(request: LoginRequestDto): Promise<{ requiresOtp: boolean; email?: string }> {
@@ -14,6 +14,12 @@ export const authService = {
     try {
       await authRepository.signIn(request.email.trim(), request.password);
       const session = await authRepository.getSession();
+      if (!session) {
+        // Never report a successful sign-in unless Supabase actually created a
+        // session. This avoids leaving a user on the sign-in screen with no
+        // explanation when email confirmation or a provider edge case blocks it.
+        throw new Error('SIGN_IN_SESSION_MISSING');
+      }
       const profile = await this.resolveUserProfile(session);
       const settings = await authSecurityService.getSettings(profile?.firmId);
 
@@ -141,7 +147,7 @@ export const authService = {
       console.warn('[AUTH] Logout requested by src/domains/auth/services/authService.ts:135 (explicit logout)');
       await authRepository.signOut();
     });
-    await auditAuthEvent('logout', userId, { timestamp: new Date().toISOString() });
+    void auditAuthEvent('logout', userId, { timestamp: new Date().toISOString() });
   },
 
   async getSession() {
@@ -166,7 +172,7 @@ export const authService = {
   async updatePassword(password: string): Promise<void> {
     try {
       await authRepository.updatePassword(password);
-      await auditAuthEvent('password_reset', undefined, { timestamp: new Date().toISOString(), stage: 'updated' });
+      void auditAuthEvent('password_reset', undefined, { timestamp: new Date().toISOString(), stage: 'updated' });
     } catch (error) {
       const safeError = normalizeAuthError(error);
       await auditAuthEvent('password_reset', undefined, { errorCode: safeError.code, timestamp: new Date().toISOString(), stage: 'update_failed' });
@@ -185,8 +191,15 @@ export const authService = {
 
   async resolveUserProfile(session: Awaited<ReturnType<SupabaseAuthRepository['getSession']>>) {
     if (!session) return null;
-    const existing = await authProfileRepository.findByAuthId(session.user.id);
-    if (existing) return existing;
+    // A newly-created auth session can arrive a fraction of a second before
+    // the linked workspace profile is visible. Retry briefly so users do not
+    // see an internal setup error during normal signup or deployment reloads.
+    const retryDelays = [0, 250, 750];
+    for (const delay of retryDelays) {
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+      const existing = await authProfileRepository.findByAuthId(session.user.id);
+      if (existing) return existing;
+    }
     throw new Error(PROFILE_SETUP_INCOMPLETE_MESSAGE);
   },
 };

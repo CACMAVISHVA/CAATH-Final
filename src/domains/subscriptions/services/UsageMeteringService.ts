@@ -1,6 +1,6 @@
 import { SubscriptionRepository } from '../repositories/SubscriptionRepository';
 import { planPolicyEngine } from '../policies/PlanPolicyEngine';
-import { UsageMetric } from '../types';
+import { UsageMetric, PlanTier } from '../types';
 
 export class UsageMeteringService {
   constructor(private readonly repository = new SubscriptionRepository()) {}
@@ -9,7 +9,7 @@ export class UsageMeteringService {
     await this.repository.upsertUsage(metric);
   }
 
-  async isWithinLimit(tenantId: string, key: UsageMetric['key'], plan: 'free' | 'premium' | 'enterprise', period: string) {
+  async isWithinLimit(tenantId: string, key: UsageMetric['key'], plan: PlanTier, period: string) {
     const usage = await this.repository.getUsage(tenantId, key, period);
     const limit = planPolicyEngine.getLimit(plan, key);
     const value = usage?.value || 0;

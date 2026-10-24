@@ -1,269 +1,103 @@
-import React, { useMemo, useEffect, useState, useCallback } from 'react';
-import { Building2, CheckSquare, Copy, ExternalLink, KeyRound, Landmark, ShieldCheck } from 'lucide-react';
-import { cn } from '../lib/utils';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ExternalLink, Landmark, Search, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getClients, ClientRow } from '../services/clientService';
-import { getTasks, TaskRow } from '../services/taskService';
-import {
-  GOVERNMENT_PORTALS,
-  GovernmentPortalConfig,
-  getClientIdentifier,
-  getGovernmentPortalByTab,
-  getPortalUsername,
-  openOfficialPortal,
-  recordGovernmentPortalAccess,
-} from '../services/governmentPortalService';
+import { GOVERNMENT_PORTALS, GovernmentPortalConfig, getClientIdentifier, getGovernmentPortalByTab, openOfficialPortal, recordGovernmentPortalAccess } from '../services/governmentPortalService';
 
-type GovernmentPortalHubProps = {
-  initialPortalTab?: string;
-};
+type GovernmentPortalHubProps = { initialPortalTab?: string };
 
 export const GovernmentPortalHub: React.FC<GovernmentPortalHubProps> = ({ initialPortalTab }) => {
   const { user } = useAuth();
-  const [activePortal, setActivePortal] = useState<GovernmentPortalConfig>(() => getGovernmentPortalByTab(initialPortalTab || 'portal-gst'));
+  const defaultPortal = getGovernmentPortalByTab(initialPortalTab || 'portal-gst');
   const [clients, setClients] = useState<ClientRow[]>([]);
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState('');
+  const [portalByClient, setPortalByClient] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setActivePortal(getGovernmentPortalByTab(initialPortalTab || 'portal-gst'));
-  }, [initialPortalTab]);
-
-  const loadHubData = useCallback(async () => {
+  const loadClients = useCallback(async () => {
     if (!user?.firmId) return;
     setLoading(true);
+    setError(null);
     try {
-      const [clientRows, taskRows] = await Promise.all([
-        getClients(user.firmId),
-        getTasks(user.firmId),
-      ]);
-      setClients(clientRows);
-      setTasks(taskRows);
-      if (!selectedClientId && clientRows[0]) setSelectedClientId(clientRows[0].id);
-    } catch (error) {
-      console.error('Failed to load government portal hub:', error);
+      const rows = await getClients(user.firmId);
+      const assignedClientIds = new Set(user.assignedClients || []);
+      const allowedRows = user.role === 'Staff'
+        ? rows.filter((client) => client.assigned_staff_id === user.id || assignedClientIds.has(client.id))
+        : rows;
+      setClients(allowedRows);
+      setPortalByClient((current) => Object.fromEntries(allowedRows.map((client) => [client.id, current[client.id] || defaultPortal.type])));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load client portal access.');
     } finally {
       setLoading(false);
     }
-  }, [selectedClientId, user?.firmId]);
+  }, [defaultPortal.type, user?.assignedClients, user?.firmId, user?.role]);
 
-  useEffect(() => {
-    loadHubData();
-  }, [loadHubData]);
+  useEffect(() => { loadClients(); }, [loadClients]);
 
-  const selectedClient = useMemo(
-    () => clients.find((client) => client.id === selectedClientId) || null,
-    [clients, selectedClientId],
-  );
+  const filteredClients = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return clients;
+    return clients.filter((client) => [client.name, client.type, client.pan, client.gstin, client.cin_llpin, client.tan].some((value) => String(value || '').toLowerCase().includes(query)));
+  }, [clients, search]);
 
-  const portalTasks = useMemo(() => {
-    return tasks
-      .filter((task) => {
-        if (task.portal_type === activePortal.type) return true;
-        if (activePortal.type === 'GST') return task.category === 'GST';
-        if (activePortal.type === 'IncomeTax') return task.category === 'Income Tax';
-        if (activePortal.type === 'MCA') return task.category === 'MCA' || task.category === 'ROC';
-        if (activePortal.type === 'TRACES') return task.category === 'TDS';
-        return false;
-      })
-      .slice(0, 8);
-  }, [activePortal, tasks]);
+  const portalForClient = (clientId: string): GovernmentPortalConfig => GOVERNMENT_PORTALS.find((portal) => portal.type === portalByClient[clientId]) || defaultPortal;
 
-  const copyValue = async (label: string, value: string, task?: TaskRow | null) => {
-    if (!value || !user) return;
-    await navigator.clipboard.writeText(value);
-    setCopied(label);
-    window.setTimeout(() => setCopied(null), 1800);
-    await recordGovernmentPortalAccess({
-      user,
-      portal: activePortal,
-      client: selectedClient,
-      task,
-      action: 'identifier_copy',
-    });
-  };
-
-  const launchPortal = async (task?: TaskRow | null) => {
+  const launchPortal = async (client: ClientRow) => {
     if (!user) return;
-    await recordGovernmentPortalAccess({
-      user,
-      portal: activePortal,
-      client: selectedClient,
-      task,
-      action: 'portal_launch',
-    });
-    openOfficialPortal(activePortal);
+    const portal = portalForClient(client.id);
+    await recordGovernmentPortalAccess({ user, portal, client, action: 'portal_launch' });
+    openOfficialPortal(portal);
   };
-
-  const identifier = getClientIdentifier(selectedClient, activePortal);
-  const username = getPortalUsername(selectedClient, activePortal);
 
   return (
-    <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-gold/10 text-gold">
-              <Landmark className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-3xl font-bold gold-text-gradient">Government Portal Hub</h2>
-              <p className="text-sm text-slate-500">Official compliance portal launchpad with client context and audit trail.</p>
-            </div>
+    <div className="h-full overflow-y-auto bg-matte-black p-4 text-slate-300 md:p-8">
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-6 flex flex-col gap-4 border-b border-slate-800 pb-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-gold/10 text-gold"><Landmark className="h-5 w-5" /></div>
+            <div><h2 className="text-2xl font-bold text-white md:text-3xl">Government Portal Login Desk</h2><p className="mt-1 text-sm text-slate-500">Choose a client and open the correct official government login page.</p></div>
           </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => launchPortal()}
-          className="inline-flex items-center justify-center gap-2 rounded-md bg-gold px-5 py-2.5 text-sm font-bold text-matte-black transition-colors hover:bg-gold-light"
-        >
-          <ExternalLink className="h-4 w-4" />
-          Open Official Portal
-        </button>
-      </div>
+          <label className="relative block w-full lg:w-80">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-600" />
+            <input aria-label="Search clients" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search client, PAN, GSTIN..." className="w-full rounded-md border border-slate-800 bg-matte-black-light py-2.5 pl-10 pr-3 text-sm text-white outline-none focus:border-gold/50" />
+          </label>
+        </header>
 
-      <div className="grid gap-3 md:grid-cols-4">
-        {GOVERNMENT_PORTALS.map((portal) => (
-          <button
-            key={portal.type}
-            type="button"
-            onClick={() => setActivePortal(portal)}
-            className={cn(
-              'rounded-md border p-4 text-left transition-all',
-              activePortal.type === portal.type
-                ? 'border-gold/50 bg-gold/10 text-white'
-                : 'border-slate-800 bg-matte-black-light text-slate-400 hover:border-slate-700 hover:text-white',
-            )}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <span className={cn('rounded-md border px-2 py-1 text-[10px] font-bold uppercase', portal.accentClass)}>
-                {portal.shortName}
-              </span>
-              <ExternalLink className="h-4 w-4 text-slate-500" />
-            </div>
-            <p className="text-sm font-bold">{portal.name}</p>
-            <p className="mt-1 truncate text-xs text-slate-500">{portal.officialUrl}</p>
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-[360px_1fr]">
-        <div className="space-y-6">
-          <div className="rounded-md border border-slate-800 bg-matte-black-light p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-gold" />
-              <h3 className="text-sm font-bold text-white">Client Context</h3>
-            </div>
-            <select
-              value={selectedClientId}
-              onChange={(event) => setSelectedClientId(event.target.value)}
-              className="w-full rounded-md border border-slate-800 bg-matte-black p-3 text-sm text-white outline-none focus:ring-1 focus:ring-gold"
-            >
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>{client.name}</option>
-              ))}
-            </select>
-
-            <div className="mt-4 space-y-3">
-              <IdentifierRow label={activePortal.identifierLabel} value={identifier} copied={copied} onCopy={() => copyValue(activePortal.identifierLabel, identifier)} />
-              <IdentifierRow label="PAN" value={selectedClient?.pan || ''} copied={copied} onCopy={() => copyValue('PAN', selectedClient?.pan || '')} />
-              <IdentifierRow label="Portal Username" value={username} copied={copied} onCopy={() => copyValue('Portal Username', username)} />
-            </div>
-          </div>
-
-          <div className="rounded-md border border-slate-800 bg-matte-black-light p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-emerald-300" />
-              <h3 className="text-sm font-bold text-white">Security Guardrails</h3>
-            </div>
-            <div className="space-y-2 text-xs text-slate-500">
-              <p>Official login, OTP, CAPTCHA, and filing confirmation stay inside the government portal.</p>
-              <p>No plaintext password is shown or stored by this hub.</p>
-              <p>Credential vault and official API integrations can plug into the existing portal services when enabled.</p>
-            </div>
-          </div>
+        <div className="mb-5 flex items-start gap-3 rounded-md border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
+          <div><p className="text-sm font-semibold text-white">Secure launch only</p><p className="mt-1 text-sm text-slate-400">CAATH opens the official portal in a new tab and records the launch. User IDs, passwords, OTPs and CAPTCHAs are not stored or auto-filled here.</p></div>
         </div>
 
-        <div className="space-y-6">
-          <div className="rounded-md border border-slate-800 bg-matte-black-light">
-            <div className="flex items-center justify-between border-b border-slate-800 p-5">
-              <div>
-                <h3 className="text-sm font-bold text-white">{activePortal.name} Work Queue</h3>
-                <p className="text-xs text-slate-500">Portal-linked tasks and compliance workflows.</p>
-              </div>
-              <span className="rounded-md border border-slate-800 px-3 py-1 text-xs font-bold text-slate-400">
-                {portalTasks.length} item{portalTasks.length === 1 ? '' : 's'}
-              </span>
-            </div>
-            {loading ? (
-              <div className="p-8 text-center text-slate-500">Loading portal work...</div>
-            ) : portalTasks.length === 0 ? (
-              <div className="p-8 text-center text-slate-500">No portal-linked tasks yet.</div>
-            ) : (
-              <div className="divide-y divide-slate-800">
-                {portalTasks.map((task) => (
-                  <div key={task.id} className="flex items-center justify-between gap-4 p-4">
-                    <div className="min-w-0">
-                      <div className="mb-1 flex items-center gap-2">
-                        <CheckSquare className="h-4 w-4 text-slate-500" />
-                        <p className="truncate text-sm font-bold text-white">{task.title}</p>
-                      </div>
-                      <p className="text-xs text-slate-500">
-                        {task.portal_workflow_type || task.category || 'Compliance'} · {task.deadline ? new Date(task.deadline).toLocaleDateString('en-IN') : 'No deadline'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => launchPortal(task)}
-                      className="inline-flex shrink-0 items-center gap-2 rounded-md border border-slate-800 px-3 py-2 text-xs font-bold text-slate-300 transition-colors hover:border-gold/50 hover:text-gold"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Launch
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            {activePortal.workflowTypes.map((workflow) => (
-              <div key={workflow} className="rounded-md border border-slate-800 bg-matte-black-light p-4">
-                <KeyRound className="mb-3 h-4 w-4 text-gold" />
-                <p className="text-sm font-bold text-white">{workflow}</p>
-                <p className="mt-1 text-xs text-slate-500">Available for task and calendar linkage.</p>
-              </div>
-            ))}
+        <div className="overflow-hidden rounded-md border border-slate-800 bg-matte-black-light">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[880px] text-left">
+              <thead className="border-b border-slate-800 bg-black/20 text-xs uppercase tracking-wider text-slate-500"><tr><th className="w-16 px-5 py-4">No.</th><th className="px-5 py-4">Client name</th><th className="px-5 py-4">Entity type</th><th className="w-64 px-5 py-4">Government portal</th><th className="w-40 px-5 py-4">Status</th><th className="w-32 px-5 py-4 text-right">Action</th></tr></thead>
+              <tbody className="divide-y divide-slate-800">
+                {loading && <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">Loading clients...</td></tr>}
+                {!loading && error && <tr><td colSpan={6} role="alert" className="px-5 py-12 text-center text-sm text-red-300">{error}</td></tr>}
+                {!loading && !error && filteredClients.length === 0 && <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-slate-500">No matching clients found.</td></tr>}
+                {!loading && !error && filteredClients.map((client, index) => {
+                  const portal = portalForClient(client.id);
+                  const identifier = getClientIdentifier(client, portal);
+                  return <tr key={client.id} className="transition-colors hover:bg-white/[0.025]">
+                    <td className="px-5 py-4 text-sm font-semibold text-slate-500">{index + 1}</td>
+                    <td className="px-5 py-4"><p className="text-sm font-semibold text-white">{client.name}</p><p className="mt-1 text-xs text-slate-600">{client.operational_id || client.pan}</p></td>
+                    <td className="px-5 py-4 text-sm text-slate-300">{client.type || 'Not specified'}</td>
+                    <td className="px-5 py-4"><select aria-label={`Government portal for ${client.name}`} value={portal.type} onChange={(event) => setPortalByClient((current) => ({ ...current, [client.id]: event.target.value }))} className="w-full rounded-md border border-slate-700 bg-matte-black px-3 py-2.5 text-sm text-white outline-none focus:border-gold/60">{GOVERNMENT_PORTALS.map((option) => <option key={option.type} value={option.type}>{option.name}</option>)}</select></td>
+                    <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${identifier ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>{identifier ? `${portal.identifierLabel} ready` : `${portal.identifierLabel} missing`}</span></td>
+                    <td className="px-5 py-4 text-right"><button type="button" onClick={() => launchPortal(client)} className="inline-flex items-center gap-2 rounded-md bg-gold px-4 py-2.5 text-sm font-bold text-matte-black transition-colors hover:bg-gold-light">Login <ExternalLink className="h-4 w-4" /></button></td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
+        <p className="mt-4 text-xs text-slate-600">Portal availability and authentication remain controlled by the respective government website. Complete OTP, CAPTCHA and filing confirmation only on that official website.</p>
       </div>
     </div>
   );
 };
-
-const IdentifierRow: React.FC<{
-  label: string;
-  value: string;
-  copied: string | null;
-  onCopy: () => void;
-}> = ({ label, value, copied, onCopy }) => (
-  <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-matte-black p-3">
-    <div className="min-w-0">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
-      <p className="truncate font-mono text-sm text-white">{value || '-'}</p>
-    </div>
-    <button
-      type="button"
-      onClick={onCopy}
-      disabled={!value}
-      className="rounded-md p-2 text-slate-500 transition-colors hover:bg-gold/10 hover:text-gold disabled:cursor-not-allowed disabled:opacity-40"
-      title={`Copy ${label}`}
-    >
-      {copied === label ? <ShieldCheck className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />}
-    </button>
-  </div>
-);
 
 export default GovernmentPortalHub;

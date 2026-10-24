@@ -106,6 +106,11 @@ export type AuditQueryOptions = {
 
 const MAX_EXPORT_LIMIT = 10000;
 
+const isMissingOptionalPortalAuditSource = (error: { code?: string; message?: string } | null) =>
+  error?.code === '42P01'
+  || error?.code === 'PGRST205'
+  || /portal_audit_logs.*(does not exist|schema cache)/i.test(error?.message || '');
+
 const mapPortalRowToExtended = (r: any): EnterpriseAuditLogExtended => ({
   id: r.id,
   firm_id: r.client_id || null,
@@ -168,13 +173,16 @@ export const getEnterpriseAuditLogs = async (opts: AuditQueryOptions = {}): Prom
       (async () => {
         let q = supabase.from('audit_logs').select('id, firm_id, user_id, user_name, user_role, action, entity_type, entity_id, details, severity, created_at').order('created_at', { ascending: false });
         q = filtersFor(q, false);
-        const { data } = await q.range(safeOffset, safeOffset + safeLimit - 1);
+        const { data, error } = await q.range(safeOffset, safeOffset + safeLimit - 1);
+        if (error) throw error;
         return (data || []) as any[];
       })(),
       (async () => {
         let q = supabase.from('portal_audit_logs').select('id, client_id, user_id, user_name, user_role, action, portal_type, details, success, timestamp').order('timestamp', { ascending: false });
         q = filtersFor(q, true);
-        const { data } = await q.range(safeOffset, safeOffset + safeLimit - 1);
+        const { data, error } = await q.range(safeOffset, safeOffset + safeLimit - 1);
+        if (error && isMissingOptionalPortalAuditSource(error)) return [];
+        if (error) throw error;
         return (data || []) as any[];
       })(),
     ]);
@@ -198,6 +206,7 @@ export const getEnterpriseAuditLogs = async (opts: AuditQueryOptions = {}): Prom
 
     q = filtersFor(q, true);
     const { data, error } = await q.range(safeOffset, safeOffset + safeLimit - 1);
+    if (error && isMissingOptionalPortalAuditSource(error)) return [];
     if (error) throw error;
     return applyPlatformAuditRedaction((data || []).map(mapPortalRowToExtended) as EnterpriseAuditLogExtended[], !opts.firmId);
   }

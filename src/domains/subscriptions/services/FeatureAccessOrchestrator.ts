@@ -6,7 +6,8 @@ export class FeatureAccessOrchestrator {
 
   async canAccess(tenantId: string, featureKey: string): Promise<boolean> {
     const subscription = await this.repository.getTenantSubscription(tenantId);
-    const plan = subscription?.plan || 'free';
+    if (!subscription || !['active', 'trial'].includes(subscription.status)) return false;
+    const plan = subscription.plan;
     return planPolicyEngine.canAccessFeature(plan, featureKey);
   }
 }

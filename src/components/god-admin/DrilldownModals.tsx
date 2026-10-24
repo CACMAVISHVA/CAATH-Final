@@ -6,7 +6,7 @@
 import React from 'react';
 import { X, Search, Download } from 'lucide-react';
 import { FirmRow } from './FirmOperationsPanel';
-import { SubscriptionRow } from './SubscriptionManagementPanel';
+import { Subscription } from '../../services/subscriptionService';
 import { formatTenantDisplayId } from '../../lib/tenantIdentity';
 
 type DrilldownType = 'active' | 'suspended' | 'pending' | 'revenue';
@@ -20,9 +20,8 @@ interface DrilldownModalsProps {
   onClose: () => void;
   onExportCSV: () => void;
   onReactivate?: (firm: FirmRow) => void;
-  onApprove?: (subscription: SubscriptionRow) => void;
   firms: FirmRow[];
-  subscriptions: SubscriptionRow[];
+  subscriptions: Subscription[];
 }
 
 export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
@@ -34,7 +33,6 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
   onClose,
   onExportCSV,
   onReactivate,
-  onApprove,
   firms,
   subscriptions,
 }) => {
@@ -47,7 +45,7 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
       case 'suspended':
         return firms.filter(f => f.status === 'Suspended').length;
       case 'pending':
-        return subscriptions.filter(s => s.status === 'Pending').length;
+        return subscriptions.filter(s => s.status === 'Pending Verification').length;
       case 'revenue':
         return subscriptions.filter(s => s.status === 'Active').length;
     }
@@ -165,20 +163,13 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {subscriptions.filter(s => s.status === 'Pending').filter(s => !searchQuery || formatTenantDisplayId(s.firm_id).toLowerCase().includes(searchQuery.toLowerCase())).map(sub => (
+                {subscriptions.filter(s => s.status === 'Pending Verification').filter(s => !searchQuery || formatTenantDisplayId(s.firm_id).toLowerCase().includes(searchQuery.toLowerCase())).map(sub => (
                   <tr key={sub.id} className="border-b border-slate-800/50 hover:bg-matte-black">
                     <td className="py-4 text-sm font-bold text-white whitespace-nowrap">{formatTenantDisplayId(sub.firm_id)}</td>
                     <td className="py-4 text-sm text-slate-400">{sub.plan}</td>
                     <td className="py-4 text-sm text-slate-400">Rs {Number(sub.amount || 0).toLocaleString()}</td>
                     <td className="py-4 text-sm text-slate-500">{sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '-'}</td>
-                    <td className="py-4">
-                      <button
-                        onClick={() => onApprove?.(sub)}
-                        className="px-3 py-1.5 bg-gold text-matte-black hover:bg-gold/90 rounded-lg text-xs font-bold"
-                      >
-                        Approve
-                      </button>
-                    </td>
+                    <td className="py-4 text-xs font-bold text-gold">Manage in Subscriptions</td>
                   </tr>
                 ))}
               </tbody>
@@ -187,8 +178,8 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
 
           {drilldownType === 'revenue' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-3 gap-4">
-                {['Starter', 'Professional', 'Enterprise'].map(plan => {
+              <div className="grid gap-4">
+                {['CAATH Practice OS'].map(plan => {
                   const planSubs = subscriptions.filter(s => s.status === 'Active' && s.plan === plan);
                   const planRevenue = planSubs.reduce((sum, s) => sum + Number(s.amount || 0), 0);
                   return (

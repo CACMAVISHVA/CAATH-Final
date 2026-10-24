@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { QaSimulationReport, runEnterpriseQaSimulation } from '../services/qaSimulationService';
+import { archiveDuplicateNotifications, QaSimulationReport, runEnterpriseQaSimulation } from '../services/qaSimulationService';
 
 export const OperationalQaInspector: React.FC = () => {
   const { user } = useAuth();
@@ -17,7 +17,24 @@ export const OperationalQaInspector: React.FC = () => {
       const result = await runEnterpriseQaSimulation(user.firmId, user);
       setReport(result);
     } catch (auditError) {
-      setError(auditError instanceof Error ? auditError.message : 'QA simulation failed.');
+      const message = auditError && typeof auditError === 'object' && 'message' in auditError
+        ? String(auditError.message)
+        : 'QA simulation failed.';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const repairDuplicateAlerts = async () => {
+    if (!user?.firmId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await archiveDuplicateNotifications(user.firmId);
+      setReport(await runEnterpriseQaSimulation(user.firmId, user));
+    } catch (repairError) {
+      setError(repairError instanceof Error ? repairError.message : 'Unable to archive duplicate notifications.');
     } finally {
       setLoading(false);
     }
@@ -28,7 +45,7 @@ export const OperationalQaInspector: React.FC = () => {
   }, []);
 
   return (
-    <div className="p-8 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:p-8">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold gold-text-gradient">Operational QA Inspector</h2>
@@ -95,11 +112,19 @@ export const OperationalQaInspector: React.FC = () => {
               <div className="p-3 bg-matte-black border border-slate-800 rounded-lg">Escalations: <span className="text-white font-bold">{report.traces.escalationEvents}</span></div>
               <div className="p-3 bg-matte-black border border-slate-800 rounded-lg">Reassignments: <span className="text-white font-bold">{report.traces.reassignmentEvents}</span></div>
               <div className="p-3 bg-matte-black border border-slate-800 rounded-lg">Notification Events: <span className="text-white font-bold">{report.traces.notificationEvents}</span></div>
+              <div className="p-3 bg-matte-black border border-slate-800 rounded-lg">Support Tickets: <span className="text-white font-bold">{report.traces.supportTicketEvents}</span></div>
             </div>
           </div>
 
           <div className="p-5 bg-matte-black-light border border-slate-800 rounded-xl">
-            <h3 className="text-lg font-bold text-white mb-4">Detected Issues</h3>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-lg font-bold text-white">Detected Issues</h3>
+              {report.issues.some((issue) => issue.area === 'notification' && issue.message.includes('duplicate')) && (
+                <button onClick={repairDuplicateAlerts} disabled={loading} className="border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200 hover:border-gold/40 disabled:opacity-50">
+                  Archive duplicate alerts
+                </button>
+              )}
+            </div>
             {report.issues.length === 0 ? (
               <div className="flex items-center gap-2 text-emerald-400">
                 <ShieldCheck className="w-4 h-4" />
@@ -129,4 +154,3 @@ export const OperationalQaInspector: React.FC = () => {
 };
 
 export default OperationalQaInspector;
-

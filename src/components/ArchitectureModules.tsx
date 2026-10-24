@@ -139,7 +139,7 @@ type DocumentWorkflowRow = {
 };
 
 const PageShell: React.FC<{ title: string; description: string; icon: React.ElementType; children: React.ReactNode }> = ({ title, description, icon: Icon, children }) => (
-  <div className="p-8 space-y-8 h-full bg-matte-black text-slate-300 overflow-y-auto">
+  <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:space-y-8 lg:p-8">
     <div className="flex items-center justify-between gap-6">
       <div>
         <div className="flex items-center gap-3">

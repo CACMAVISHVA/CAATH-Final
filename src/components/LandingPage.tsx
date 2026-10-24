@@ -59,7 +59,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterApp }) => {
             className="inline-flex items-center gap-2 px-4 py-2 bg-gold/10 text-gold border border-gold/20 rounded-full text-xs font-bold uppercase tracking-widest mb-8"
           >
             <Star className="w-3 h-3 fill-gold" />
-            The Future of CA Practice Management
+            The Future of Professional Practice Management
           </motion.div>
           
           <motion.h1 

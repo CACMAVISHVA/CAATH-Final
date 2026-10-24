@@ -8,7 +8,7 @@ import {
   Search,
   Filter,
   Plus,
-  MoreVertical,
+  Pencil,
   Trash2,
   Mail,
   Phone,
@@ -37,18 +37,11 @@ import { ModalLoader } from './loaders/ModalLoader';
 import { ClientGovernanceSidebar } from './client-domain/ClientGovernanceSidebar';
 import { Modal } from './Modal';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
+import { clearSessionDraft, hasSessionDraft, readSessionDraft, writeSessionDraft } from '../hooks/useSessionDraft';
+import { CLIENT_SERVICE_OPTIONS, ClientImportPreview, downloadClientImportCsvTemplate, downloadClientImportTemplate, importClientRows, parseClientImportFile } from '../services/clientBulkImportService';
 
 const LeadPipeline = lazy(() => import('./LeadPipeline'));
 const ClientProfile = lazy(() => import('./ClientProfile'));
-
-const SERVICE_OPTIONS = [
-  'GST Filing',
-  'Income Tax',
-  'Audit',
-  'ROC Filing',
-  'Payroll',
-  'Bookkeeping',
-];
 
 interface ClientFormData {
   name: string;
@@ -63,42 +56,36 @@ interface ClientFormData {
   services: string[];
 }
 
+const defaultClientForm: ClientFormData = {
+  name: '',
+  type: '',
+  pan: '',
+  gstin: '',
+  tan: '',
+  cinLlpin: '',
+  portalUsername: '',
+  email: '',
+  phone: '',
+  services: [],
+};
+
 export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: string[] }> = ({ assignedOnly, assignedClients }) => {
   const { user } = useAuth();
+  const clientDraftKey = `caath:draft:client:${user?.firmId || 'loading'}`;
   const [searchTerm, setSearchTerm] = useState('');
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddClient, setShowAddClient] = useState(false);
+  const [showAddClient, setShowAddClient] = useState(() => hasSessionDraft(clientDraftKey));
   const [clientToDelete, setClientToDelete] = useState<ClientRow | null>(null);
   const [editClient, setEditClient] = useState<ClientRow | null>(null);
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
   const [uploading, setUploading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [bulkPreview, setBulkPreview] = useState<ClientImportPreview | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState<ClientFormData>({
-    name: '',
-    type: '',
-    pan: '',
-    gstin: '',
-    tan: '',
-    cinLlpin: '',
-    portalUsername: '',
-    email: '',
-    phone: '',
-    services: [],
-  });
-  const defaultClientForm: ClientFormData = {
-    name: '',
-    type: '',
-    pan: '',
-    gstin: '',
-    tan: '',
-    cinLlpin: '',
-    portalUsername: '',
-    email: '',
-    phone: '',
-    services: [],
-  };
+  const [formData, setFormData] = useState<ClientFormData>(() => readSessionDraft(clientDraftKey, defaultClientForm));
   const hasUnsavedClientChanges = (() => {
     if (showAddClient) {
       return JSON.stringify(formData) !== JSON.stringify(defaultClientForm);
@@ -106,6 +93,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
     if (editClient) {
       return (
         formData.name !== (editClient.name || '') ||
+        formData.tan !== (editClient.tan || '') ||
+        formData.cinLlpin !== (editClient.cin_llpin || '') ||
+        formData.portalUsername !== (editClient.portal_username || '') ||
         formData.email !== (editClient.email || '') ||
         formData.phone !== (editClient.phone || '') ||
         JSON.stringify(formData.services) !== JSON.stringify(editClient.services || [])
@@ -115,6 +105,24 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   })();
   const guardClientModalClose = useUnsavedChangesGuard(hasUnsavedClientChanges);
 
+  const openAddClient = () => {
+    setFormData(readSessionDraft(clientDraftKey, defaultClientForm));
+    setShowAddClient(true);
+    setFormError(null);
+  };
+
+  const closeAddClient = () => guardClientModalClose(() => {
+    clearSessionDraft(clientDraftKey);
+    setFormData(defaultClientForm);
+    setShowAddClient(false);
+    setFormError(null);
+  });
+
+  useEffect(() => {
+    if (showAddClient) writeSessionDraft(clientDraftKey, formData);
+  }, [clientDraftKey, formData, showAddClient]);
+
+  const canManageClients = user?.role === 'SuperAdmin' || user?.role === 'Admin';
   const allowClientDelete = canDeleteClient(user);
 
   const loadClients = useCallback(async () => {
@@ -138,14 +146,13 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   useEffect(() => {
     const onQuickAction = (event: Event) => {
       const customEvent = event as CustomEvent<{ action?: string }>;
-      if (customEvent.detail?.action === 'create-client') {
-        setShowAddClient(true);
-        setFormError(null);
+      if (customEvent.detail?.action === 'create-client' && canManageClients) {
+        openAddClient();
       }
     };
     window.addEventListener('caath:quick-action', onQuickAction);
     return () => window.removeEventListener('caath:quick-action', onQuickAction);
-  }, []);
+  }, [canManageClients, clientDraftKey]);
 
   const toggleService = (service: string) => {
     setFormData((prev) => {
@@ -160,7 +167,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   };
 
   const handleSaveClient = async () => {
-    if (!user) return;
+    if (!user || !canManageClients) return;
 
     setFormError(null);
 
@@ -202,6 +209,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
       });
 
       setFormData(defaultClientForm);
+      clearSessionDraft(clientDraftKey);
       setShowAddClient(false);
       loadClients();
     } catch (error) {
@@ -210,7 +218,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   };
 
   const handleUpdateClient = async () => {
-    if (!user || !editClient) return;
+    if (!user || !editClient || !canManageClients) return;
 
     setFormError(null);
 
@@ -245,6 +253,29 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
     }
   };
 
+  const handleBulkFile = async (file?: File | null) => {
+    if (!file) return;
+    setUploading(true); setBulkError(null); setBulkPreview(null);
+    try { setBulkPreview(await parseClientImportFile(file, clients.map((client) => client.pan))); }
+    catch (error) { setBulkError(error instanceof Error ? error.message : 'Unable to read this import file.'); }
+    finally { setUploading(false); }
+  };
+
+  const handleBulkImport = async () => {
+    if (!user || !bulkPreview?.validRows.length) return;
+    setUploading(true); setBulkError(null);
+    try {
+      const result = await importClientRows(user, bulkPreview.validRows);
+      await loadClients();
+      if (result.failed.length) {
+        setBulkError(`${result.imported.length} clients imported. ${result.failed.length} row(s) could not be imported: ${result.failed.map((failure) => `row ${failure.rowNumber}: ${failure.error}`).join(' ')}`);
+      } else {
+        setShowBulkImport(false); setBulkPreview(null);
+      }
+    } catch (error) { setBulkError(error instanceof Error ? error.message : 'Unable to import clients.'); }
+    finally { setUploading(false); }
+  };
+
   const openEditModal = (client: ClientRow) => {
     setEditClient(client);
     setFormData({
@@ -263,10 +294,16 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   };
 
   const filteredClients = clients.filter((client) => {
-    const name = client.name ?? '';
-    const pan = client.pan ?? '';
-    const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pan.toLowerCase().includes(searchTerm.toLowerCase());
+    const query = searchTerm.trim().toLowerCase();
+    const matchesSearch = [
+      client.name,
+      client.pan,
+      client.gstin,
+      client.tan,
+      client.cin_llpin,
+      client.email,
+      client.phone,
+    ].some((value) => String(value || '').toLowerCase().includes(query));
 
     if (assignedOnly && assignedClients) {
       return matchesSearch && assignedClients.includes(client.id);
@@ -276,30 +313,13 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
 
   return (
     <>
-    <div className="p-8 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
-      <div className="flex items-center justify-between">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-3xl font-bold gold-text-gradient">Client Master</h2>
           <p className="text-slate-500">Manage your clients and their compliance profiles.</p>
         </div>
-        <button
-         onClick={() => { setShowAddClient(true); setFormError(null); setFormData({
-          name: '',
-          type: '',
-          pan: '',
-          gstin: '',
-          tan: '',
-          cinLlpin: '',
-          portalUsername: '',
-          email: '',
-          phone: '',
-          services: [],
-        }); }}
-        className="flex items-center gap-2 px-6 py-2.5 bg-gold text-matte-black rounded-xl font-bold hover:bg-gold-light"
-    >
-          <Plus className="w-4 h-4" />
-          Add New Client
-        </button>
+        {canManageClients && <div className="flex flex-wrap gap-2"><button onClick={() => { setShowBulkImport(true); setBulkPreview(null); setBulkError(null); }} className="flex items-center gap-2 px-4 py-2.5 border border-slate-700 rounded-xl font-bold text-slate-200 hover:border-gold hover:text-gold"><FileUp className="w-4 h-4" />Bulk import</button><button onClick={openAddClient} className="flex items-center gap-2 px-6 py-2.5 bg-gold text-matte-black rounded-xl font-bold hover:bg-gold-light"><Plus className="w-4 h-4" />Add New Client</button></div>}
       </div>
 
       {import.meta.env.VITE_NOTICE_INTELLIGENCE === 'true' && !assignedOnly && <Suspense fallback={<p>Loading leads...</p>}><LeadPipeline clients={clients} /></Suspense>}
@@ -308,7 +328,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Search by name, PAN, or GSTIN..."
+            placeholder="Search name, PAN, GSTIN, TAN, CIN, email or phone..."
             className="w-full pl-10 pr-4 py-2.5 bg-matte-black-light border border-slate-800 rounded-xl text-sm text-white focus:ring-2 focus:ring-gold focus:border-transparent transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -329,17 +349,26 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
       )}
 
       {!loading && (
-      <div className="bg-matte-black-light rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
-        <table className="w-full text-left border-collapse">
+      <div className="bg-matte-black-light rounded-2xl border border-slate-800 shadow-2xl overflow-x-auto">
+        <table className="min-w-[1120px] w-full table-fixed text-left border-collapse">
+          <colgroup>
+            <col className="w-[16%]" />
+            <col className="w-[16%]" />
+            <col className="w-[19%]" />
+            <col className="w-[7%]" />
+            <col className="w-[16%]" />
+            <col className="w-[9%]" />
+            <col className="w-[17%]" />
+          </colgroup>
           <thead>
             <tr className="bg-matte-black border-b border-slate-800">
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Client Name</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Type</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">PAN / GSTIN</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Risk Level</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Contact</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Services</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Client Name</th>
+              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Type</th>
+              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Client identifiers</th>
+              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Risk Level</th>
+              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Contact</th>
+              <th className="px-4 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Services</th>
+              <th className="sticky right-0 z-20 bg-matte-black px-4 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-500">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -358,7 +387,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                 animate={{ opacity: 1 }}
                 className="hover:bg-matte-black transition-colors group"
               >
-                <td className="px-6 py-4">
+                <td className="px-4 py-4">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-gold/10 text-gold flex items-center justify-center font-bold text-xs border border-gold/20">
                       {(client.name ?? ' ')[0]}
@@ -369,16 +398,20 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4">
-                  <span className="px-2 py-1 bg-slate-800 text-slate-400 rounded-md text-[10px] font-bold uppercase tracking-wider border border-slate-700">
+                <td className="px-4 py-4">
+                  <span className="inline-block max-w-full break-words rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-center text-[10px] font-bold uppercase leading-4 tracking-wide text-slate-300">
                     {client.type}
                   </span>
                 </td>
-                <td className="px-6 py-4">
-                  <p className="text-sm font-mono text-slate-300">{client.pan}</p>
-                  <p className="text-[10px] font-mono text-slate-500">{client.gstin || '-'}</p>
+                <td className="px-4 py-4">
+                  <div className="space-y-1 break-all font-mono text-xs">
+                    <p className="text-slate-300"><span className="mr-2 text-[10px] font-sans font-bold uppercase tracking-wide text-slate-500">PAN</span>{client.pan || '—'}</p>
+                    {client.gstin && <p className="text-slate-400"><span className="mr-2 text-[10px] font-sans font-bold uppercase tracking-wide text-slate-500">GSTIN</span>{client.gstin}</p>}
+                    {client.tan && <p className="text-slate-400"><span className="mr-2 text-[10px] font-sans font-bold uppercase tracking-wide text-slate-500">TAN</span>{client.tan}</p>}
+                    {client.cin_llpin && <p className="text-slate-400"><span className="mr-2 text-[10px] font-sans font-bold uppercase tracking-wide text-slate-500">CIN / LLPIN</span>{client.cin_llpin}</p>}
+                  </div>
                 </td>
-                <td className="px-6 py-4">
+                <td className="px-4 py-4">
                   <div className="flex items-center gap-1.5">
                     {client.risk_level === 'Low' && <ShieldCheck className="w-4 h-4 text-emerald-500" />}
                     {client.risk_level === 'Medium' && <Shield className="w-4 h-4 text-amber-500" />}
@@ -392,12 +425,12 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                     </span>
                   </div>
                 </td>
-                <td className="px-6 py-4">
+                <td className="px-4 py-4">
                   <div className="flex flex-col gap-1">
                     {client.email && (
                       <div className="flex items-center gap-2 text-slate-500">
                         <Mail className="w-3 h-3" />
-                        <span className="text-xs">{client.email}</span>
+                        <span className="break-all text-xs">{client.email}</span>
                       </div>
                     )}
                     {client.phone && (
@@ -408,7 +441,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                     )}
                   </div>
                 </td>
-                <td className="px-6 py-4">
+                <td className="px-4 py-4">
                   <div className="flex flex-wrap gap-1">
                     {client.services?.map((service) => (
                       <span key={service} className="px-1.5 py-0.5 bg-gold/10 text-gold rounded text-[8px]">
@@ -417,26 +450,34 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                     ))}
                   </div>
                 </td>
-                <td className="px-6 py-4 text-right">
-                  <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <td className="sticky right-0 z-10 bg-matte-black-light px-4 py-4 transition-colors group-hover:bg-matte-black">
+                  <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                     <button
                       onClick={(e) => { e.stopPropagation(); setSelectedClient(client); }}
-                      className="p-2 text-slate-500 hover:text-gold hover:bg-gold/10 rounded-lg transition-colors"
+                      aria-label={`Open ${client.name}`}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gold/30 bg-gold/10 px-3 text-sm font-bold text-gold transition-colors hover:bg-gold hover:text-matte-black"
                     >
                       <ExternalLink className="w-4 h-4" />
+                      Open
                     </button>
-                    <button
+                    {canManageClients && <button
                       onClick={(e) => { e.stopPropagation(); openEditModal(client); }}
-                      className="p-2 text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg"
+                      aria-label={`Edit ${client.name}`}
+                      title="Edit client"
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-700 p-3 text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-800"
                     >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
+                      <Pencil className="w-4 h-4" />
+                      <span className="sr-only">Edit</span>
+                    </button>}
                     {allowClientDelete && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setClientToDelete(client); }}
-                        className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg"
+                        aria-label={`Delete ${client.name}`}
+                        title="Delete client"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-red-500/30 p-3 text-red-300 transition-colors hover:bg-red-500/10"
                       >
                         <Trash2 className="w-4 h-4" />
+                        <span className="sr-only">Delete</span>
                       </button>
                     )}
                   </div>
@@ -451,8 +492,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
 
     {/* Add Client Modal */}
     <Modal
-      isOpen={showAddClient}
-      onClose={() => guardClientModalClose(() => setShowAddClient(false))}
+      isOpen={canManageClients && showAddClient}
+      onClose={closeAddClient}
       title="Add New Client"
       size="lg"
     >
@@ -495,6 +536,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               value={formData.pan}
               onChange={(e) => setFormData({ ...formData, pan: e.target.value.toUpperCase() })}
               maxLength={10}
+              pattern="[A-Za-z]{5}[0-9]{4}[A-Za-z]"
+              title="PAN must contain 5 letters, 4 numbers, and 1 letter"
             />
 
             <input
@@ -504,6 +547,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               value={formData.gstin}
               onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
               maxLength={15}
+              pattern="(0[1-9]|[12][0-9]|3[0-8])[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z]Z[0-9A-Za-z]"
+              title="Please enter a valid 15-character GSTIN"
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -514,6 +559,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                 value={formData.tan}
                 onChange={(e) => setFormData({ ...formData, tan: e.target.value.toUpperCase() })}
                 maxLength={10}
+                pattern="[A-Za-z]{4}[0-9]{5}[A-Za-z]"
+                title="TAN must contain 4 letters, 5 numbers, and 1 letter"
               />
               <input
                 type="text"
@@ -521,7 +568,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                 className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white uppercase"
                 value={formData.cinLlpin}
                 onChange={(e) => setFormData({ ...formData, cinLlpin: e.target.value.toUpperCase() })}
-                maxLength={30}
+                maxLength={21}
+                title="Please enter a valid CIN or LLPIN"
               />
             </div>
 
@@ -535,6 +583,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
 
             <input
               type="email"
+              maxLength={254}
               placeholder="Email"
               className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
               value={formData.email}
@@ -542,7 +591,11 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             />
 
             <input
-              type="text"
+              type="tel"
+              inputMode="numeric"
+              maxLength={14}
+              pattern="(?:[+]91[ -]?)?[6-9][0-9]{9}"
+              title="Please enter a valid 10-digit Indian mobile number"
               placeholder="Phone"
               className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
               value={formData.phone}
@@ -552,7 +605,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             <div>
               <p className="text-sm text-slate-400 mb-3">Services</p>
               <div className="grid grid-cols-2 gap-3">
-                {SERVICE_OPTIONS.map((service) => (
+                {CLIENT_SERVICE_OPTIONS.map((service) => (
                   <button
                     key={service}
                     type="button"
@@ -572,7 +625,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
 
             <div className="flex gap-3 pt-4">
               <button
-                onClick={() => guardClientModalClose(() => setShowAddClient(false))}
+                onClick={closeAddClient}
                 className="flex-1 p-3 rounded-xl bg-slate-800 text-white"
               >
                 Cancel
@@ -585,6 +638,15 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               </button>
             </div>
           </div>
+    </Modal>
+
+    <Modal isOpen={canManageClients && showBulkImport} onClose={() => !uploading && setShowBulkImport(false)} title="Bulk import clients" size="xl">
+      <div className="space-y-5">
+        <div className="rounded-xl border border-sky-400/20 bg-sky-400/5 p-4 text-sm text-sky-100"><strong>Safe import:</strong> upload CSV or XLSX, review every row, then import only valid records. Existing and repeated PANs are blocked. Nothing is added until you select <strong>Import valid clients</strong>. For Services, use the Excel dropdown or type one or more values separated by <strong>|</strong>, comma, or semicolon.</div>
+        <div className="flex flex-wrap gap-3"><button type="button" onClick={downloadClientImportTemplate} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold hover:border-gold">Download Excel template</button><button type="button" onClick={downloadClientImportCsvTemplate} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-bold hover:border-gold">Download CSV template</button><label className="cursor-pointer rounded-lg bg-gold px-4 py-2 text-sm font-black text-matte-black"><input type="file" accept=".csv,.xlsx" className="hidden" onChange={(event) => void handleBulkFile(event.target.files?.[0])}/>{uploading ? 'Reading file…' : 'Choose CSV or XLSX'}</label></div>
+        {bulkError && <div className="rounded-lg border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{bulkError}</div>}
+        {bulkPreview && <><div className="grid grid-cols-3 gap-3"><div className="rounded-lg border border-slate-700 p-3"><p className="text-2xl font-black text-white">{bulkPreview.rows.length}</p><p className="text-xs text-slate-500">Rows found</p></div><div className="rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-3"><p className="text-2xl font-black text-emerald-300">{bulkPreview.validRows.length}</p><p className="text-xs text-slate-500">Ready to import</p></div><div className="rounded-lg border border-red-400/20 bg-red-400/5 p-3"><p className="text-2xl font-black text-red-300">{bulkPreview.invalidRows.length}</p><p className="text-xs text-slate-500">Need correction</p></div></div><div className="max-h-72 overflow-auto rounded-lg border border-slate-800"><table className="w-full text-left text-sm"><thead className="sticky top-0 bg-matte-black text-xs uppercase text-slate-500"><tr><th className="p-3">Row</th><th>Client</th><th>PAN</th><th>Result</th></tr></thead><tbody>{bulkPreview.rows.map((row) => <tr key={row.rowNumber} className="border-t border-slate-800"><td className="p-3">{row.rowNumber}</td><td>{row.name || '—'}</td><td className="font-mono">{row.pan || '—'}</td><td className={row.errors.length ? 'text-red-300' : 'text-emerald-300'}>{row.errors.length ? row.errors.join(' ') : 'Ready'}</td></tr>)}</tbody></table></div><div className="flex justify-end gap-3"><button type="button" onClick={() => setShowBulkImport(false)} disabled={uploading} className="rounded-lg bg-slate-800 px-4 py-2 font-bold">Cancel</button><button type="button" onClick={() => void handleBulkImport()} disabled={uploading || !bulkPreview.validRows.length} className="rounded-lg bg-gold px-4 py-2 font-black text-matte-black disabled:opacity-40">{uploading ? 'Importing…' : `Import ${bulkPreview.validRows.length} valid client${bulkPreview.validRows.length === 1 ? '' : 's'}`}</button></div></>}
+      </div>
     </Modal>
 
     {/* Delete Confirmation */}
@@ -622,9 +684,32 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
           )}
 
           <div className="space-y-4">
+            <div className="rounded-xl border border-slate-700 bg-matte-black p-4">
+              <div className="mb-3">
+                <p className="text-sm font-bold text-slate-200">Registered identity</p>
+                <p className="mt-1 text-xs text-slate-500">PAN and GSTIN are the primary identifiers shown in the client list. They are fixed after client creation.</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Entity type</p>
+                  <p className="mt-1 text-sm text-white">{editClient?.type || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">PAN</p>
+                  <p className="mt-1 font-mono text-sm text-white">{editClient?.pan || '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">GSTIN</p>
+                  <p className="mt-1 font-mono text-sm text-white">{editClient?.gstin || 'Not registered'}</p>
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="text-sm text-slate-400 mb-2 block">Client Name</label>
               <input
+                type="text"
+                maxLength={120}
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
@@ -634,6 +719,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             <div>
               <label className="text-sm text-slate-400 mb-2 block">Email</label>
               <input
+                type="email"
+                maxLength={254}
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
@@ -641,9 +728,13 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <p className="col-span-full -mb-1 text-xs text-slate-500">Additional entity and tax identifiers</p>
               <div>
                 <label className="text-sm text-slate-400 mb-2 block">TAN</label>
                 <input
+                  maxLength={10}
+                  pattern="[A-Za-z]{4}[0-9]{5}[A-Za-z]"
+                  title="TAN must contain 4 letters, 5 numbers, and 1 letter"
                   value={formData.tan}
                   onChange={(e) => setFormData({ ...formData, tan: e.target.value.toUpperCase() })}
                   className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full uppercase"
@@ -652,6 +743,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               <div>
                 <label className="text-sm text-slate-400 mb-2 block">CIN / LLPIN</label>
                 <input
+                  maxLength={21}
+                  title="Please enter a valid CIN or LLPIN"
                   value={formData.cinLlpin}
                   onChange={(e) => setFormData({ ...formData, cinLlpin: e.target.value.toUpperCase() })}
                   className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full uppercase"
@@ -662,6 +755,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             <div>
               <label className="text-sm text-slate-400 mb-2 block">Portal Username</label>
               <input
+                type="text"
                 value={formData.portalUsername}
                 onChange={(e) => setFormData({ ...formData, portalUsername: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
@@ -671,6 +765,11 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             <div>
               <label className="text-sm text-slate-400 mb-2 block">Phone</label>
               <input
+                type="tel"
+                inputMode="numeric"
+                maxLength={14}
+                pattern="(?:[+]91[ -]?)?[6-9][0-9]{9}"
+                title="Please enter a valid 10-digit Indian mobile number"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
@@ -699,6 +798,11 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
         <ClientProfile
           client={selectedClient}
           isOpen={!!selectedClient}
+          onEdit={() => {
+            const clientToEdit = selectedClient;
+            setSelectedClient(null);
+            openEditModal(clientToEdit);
+          }}
           onClose={() => setSelectedClient(null)}
         />
       </Suspense>

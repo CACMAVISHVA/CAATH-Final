@@ -9,9 +9,25 @@ import { Invoice, InvoiceInput, InvoiceLineItem, InvoiceStatus } from './invoice
 import { generateInvoiceNumber, calculateTax } from './invoiceGenerationService';
 import { writeFinancialAudit } from './invoiceAuditService';
 import { publishEnterpriseEvent } from '../enterpriseEventBusService';
+import { firstValidationError, validateRequiredName, validateUuid } from '../../lib/fieldValidation';
 
 export const createInvoice = async (input: InvoiceInput): Promise<Invoice> => {
   const { firmId, clientId, clientName, placeOfSupply, gstTreatment, billingCategory, issueDate, dueDate, lineItems, notes, terms, user } = input;
+
+  const validationError = firstValidationError(
+    validateUuid(firmId, 'firm ID'),
+    validateUuid(clientId, 'client ID'),
+    validateRequiredName(clientName, 'Client name'),
+  );
+  if (validationError) throw new Error(validationError);
+  if (user.firmId !== firmId) throw new Error('Invoice firm does not match your workspace.');
+  if (!issueDate || !dueDate || Number.isNaN(Date.parse(issueDate)) || Number.isNaN(Date.parse(dueDate)) || dueDate < issueDate) throw new Error('Please enter valid invoice and due dates.');
+  if (!lineItems.length) throw new Error('Add at least one invoice line item.');
+  lineItems.forEach((item) => {
+    if (!item.description.trim() || item.description.trim().length > 300 || !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.rate) || item.rate < 0 || !Number.isFinite(item.discount) || item.discount < 0 || item.discount > item.quantity * item.rate || ![0, 5, 12, 18, 28].includes(item.gstRate)) {
+      throw new Error('Please enter valid service details, quantities, rates, discounts and GST rates.');
+    }
+  });
 
   // Calculate line items with tax
   let subtotal = 0;

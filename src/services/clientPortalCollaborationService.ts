@@ -62,8 +62,35 @@ export interface ClientPortalSnapshot {
   timeline: ClientPortalTimelineItem[];
 }
 
+const optionalRows = <T>(
+  result: PromiseSettledResult<{ data: T[] | null; error: unknown }>,
+  label: string,
+): T[] => {
+  if (result.status === 'rejected') {
+    console.warn(`[AUTH] Optional client portal module unavailable: ${label}`, result.reason);
+    return [];
+  }
+  if (result.value.error) {
+    console.warn(`[AUTH] Optional client portal module unavailable: ${label}`, result.value.error);
+    return [];
+  }
+  return result.value.data || [];
+};
+
 export const resolveClientPortalContext = async (user: User): Promise<ClientPortalContext | null> => {
   if (!user.firmId || user.role !== 'Client') return null;
+
+  const { data: contact } = await supabase
+    .from('client_contacts')
+    .select('client_id, clients!inner(id, name)')
+    .eq('firm_id', user.firmId)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  const linkedClient = Array.isArray(contact?.clients) ? contact.clients[0] : contact?.clients;
+  if (contact?.client_id && linkedClient?.id) {
+    return { clientId: linkedClient.id, clientName: linkedClient.name };
+  }
 
   const { data: direct } = await supabase
     .from('clients')
@@ -73,40 +100,28 @@ export const resolveClientPortalContext = async (user: User): Promise<ClientPort
     .maybeSingle();
   if (direct?.id) return { clientId: direct.id, clientName: direct.name };
 
-  const { data: fallback } = await supabase
-    .from('clients')
-    .select('id, name')
-    .eq('firm_id', user.firmId)
-    .order('created_at', { ascending: true })
-    .limit(1);
-  const first = fallback?.[0];
-  return first ? { clientId: first.id, clientName: first.name } : null;
+  // An unmapped account must never fall back to another client's records.
+  return null;
 };
 
 export const getClientPortalSnapshot = async (user: User): Promise<ClientPortalSnapshot | null> => {
   const context = await resolveClientPortalContext(user);
   if (!context || !user.firmId) return null;
 
-  const [tasksRes, noticesRes, invoicesRes, docsRes, eventsRes] = await Promise.all([
+  const [tasksRes, noticesRes, invoicesRes, docsRes, eventsRes] = await Promise.allSettled([
     supabase.from('tasks').select('id,title,status,deadline,priority,created_at').eq('firm_id', user.firmId).eq('client_id', context.clientId).order('created_at', { ascending: false }).limit(50),
     supabase.from('notices').select('id,notice_number,source,status,deadline,created_at').eq('firm_id', user.firmId).eq('client_id', context.clientId).order('created_at', { ascending: false }).limit(50),
     supabase.from('invoices').select('id,invoice_number,status,total,pending_amount,due_date,created_at').eq('firm_id', user.firmId).eq('client_id', context.clientId).order('created_at', { ascending: false }).limit(50),
     supabase.from('document_vault').select('id,name,category,document_type,file_path,created_at').eq('firm_id', user.firmId).eq('client_id', context.clientId).eq('is_deleted', false).order('created_at', { ascending: false }).limit(100),
     supabase.from('enterprise_activities').select('id,event_type,event_subtype,details,created_at').eq('firm_id', user.firmId).order('created_at', { ascending: false }).limit(120),
-  ]);
+  ] as const);
 
-  if (tasksRes.error) throw tasksRes.error;
-  if (noticesRes.error) throw noticesRes.error;
-  if (invoicesRes.error) throw invoicesRes.error;
-  if (docsRes.error) throw docsRes.error;
-  if (eventsRes.error) throw eventsRes.error;
+  const tasks = optionalRows(tasksRes, 'tasks') as ClientPortalTask[];
+  const notices = optionalRows(noticesRes, 'notices') as ClientPortalNotice[];
+  const invoices = optionalRows(invoicesRes, 'invoices') as ClientPortalInvoice[];
+  const documents = optionalRows(docsRes, 'document_vault') as ClientPortalDocument[];
 
-  const tasks = (tasksRes.data || []) as ClientPortalTask[];
-  const notices = (noticesRes.data || []) as ClientPortalNotice[];
-  const invoices = (invoicesRes.data || []) as ClientPortalInvoice[];
-  const documents = (docsRes.data || []) as ClientPortalDocument[];
-
-  const clientEvents = (eventsRes.data || []).filter((event: any) => {
+  const clientEvents = optionalRows(eventsRes, 'enterprise_activities').filter((event: any) => {
     const details = (event.details || {}) as Record<string, unknown>;
     const payload = ((details.payload || {}) as Record<string, unknown>);
     return payload.clientId === context.clientId || details.clientVisible === true;

@@ -1,5 +1,5 @@
 import { resolveDatasetDependencies } from './dependency-engine/dependencyEngine';
-import { createAdaptiveUploadSession, markDatasetUploaded, requiredDatasetsReady, UploadSessionState } from './upload-orchestrator/uploadOrchestrator';
+import { createAdaptiveUploadSession, markDatasetParsed, requiredDatasetsReady, UploadSessionState } from './upload-orchestrator/uploadOrchestrator';
 import { parseAndNormalizeSession } from './parsing-engine/parsingEngine';
 import { runGSTValidation } from './validation-engine/validationEngine';
 import { buildStorageEnvelope, GSTIntelligenceStorageEnvelope } from './storage/storageContracts';
@@ -23,8 +23,12 @@ export const initializeAdaptiveWorkflow = (params: {
   return { deps, session };
 };
 
-export const uploadDatasetInSession = (session: UploadSessionState, dataset: GSTDatasetType, fileName: string) =>
-  markDatasetUploaded(session, dataset, fileName);
+export const uploadDatasetInSession = (
+  session: UploadSessionState,
+  dataset: GSTDatasetType,
+  fileName: string,
+  summary: NonNullable<UploadSessionState['datasets'][number]['parseSummary']>,
+) => markDatasetParsed(session, dataset, fileName, summary);
 
 export const processAdaptiveWorkflow = (params: {
   tenantId: string;

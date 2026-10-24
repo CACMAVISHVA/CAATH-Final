@@ -27,6 +27,7 @@ export const AuditCenter: React.FC = () => {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const pageSize = limit;
 
@@ -34,6 +35,7 @@ export const AuditCenter: React.FC = () => {
     // reset pagination on filter change
     setOffset(0);
     setHasMore(true);
+    setLoadError(null);
     (async () => {
       try {
         const results = await getEnterpriseAuditLogs({
@@ -55,6 +57,8 @@ export const AuditCenter: React.FC = () => {
         setHasMore(results.length >= pageSize);
       } catch (err) {
         console.error(err);
+        setLogs([]);
+        setLoadError('Audit events could not be loaded. Please refresh or contact the CAATH administrator.');
       }
     })();
   }, [user?.firmId, query, category, severity, userName, userRole, actionFilter, portalType, since, until]);
@@ -98,7 +102,7 @@ export const AuditCenter: React.FC = () => {
   }, [logs]);
 
   return (
-    <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
+    <div className="caath-page h-full overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:p-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold gold-text-gradient">Audit Center</h2>
@@ -125,7 +129,13 @@ export const AuditCenter: React.FC = () => {
         </select>
       </div>
       <div className="space-y-3">
-        {Object.keys(grouped).length === 0 && (
+        {loadError && (
+          <div role="alert" className="border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-300">
+            {loadError}
+          </div>
+        )}
+
+        {!loadError && Object.keys(grouped).length === 0 && (
           <div className="border border-slate-800 p-10 text-center text-slate-500">
             <ShieldAlert className="mx-auto mb-3 h-8 w-8" />
             No audit events found.

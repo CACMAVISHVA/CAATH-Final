@@ -17,6 +17,9 @@ type UserProfileRow = {
 
 type FirmRow = {
   id: string;
+  status?: string | null;
+  suspension_effective_at?: string | null;
+  suspension_mode?: string | null;
   name?: string | null;
   firm_name?: string | null;
   workspace_code?: string | null;
@@ -37,8 +40,11 @@ const mapFirm = (value: FirmRow | FirmRow[] | null | undefined): WorkspaceFirm |
   return {
     id: row.id,
     name: row.firm_name || row.name || 'Workspace',
+    status: (row.status || 'Inactive') as WorkspaceFirm['status'],
+    suspensionEffectiveAt: row.suspension_effective_at || undefined,
+    suspensionMode: row.suspension_mode as WorkspaceFirm['suspensionMode'] || undefined,
     workspaceCode: row.workspace_code || undefined,
-    subscriptionPlan: (row.subscription_plan || 'Starter') as WorkspaceSubscriptionPlan,
+    subscriptionPlan: (row.subscription_plan || 'CAATH Practice OS') as WorkspaceSubscriptionPlan,
     subscriptionStatus: (row.subscription_status || 'Pending Payment') as SubscriptionStatus,
     subscriptionStartDate: row.subscription_start_date || undefined,
     subscriptionExpiryDate: row.subscription_expiry_date || undefined,
@@ -67,7 +73,7 @@ export const authProfileRepository = {
   async findByAuthId(authId: string): Promise<AuthProfileDto | null> {
     const { data, error } = await supabase
       .from('users')
-      .select('id, auth_id, firm_id, name, email, role, status, is_workspace_owner, created_at, firms!firm_id(id, name, firm_name, workspace_code, subscription_plan, subscription_status, subscription_start_date, subscription_expiry_date, max_admins, max_staff, max_clients, created_by_auth_id, created_at)')
+      .select('id, auth_id, firm_id, name, email, role, status, is_workspace_owner, created_at, firms!firm_id(id, name, firm_name, status, suspension_effective_at, suspension_mode, workspace_code, subscription_plan, subscription_status, subscription_start_date, subscription_expiry_date, max_admins, max_staff, max_clients, created_by_auth_id, created_at)')
       .eq('auth_id', authId)
       .maybeSingle();
     if (error) throw error;
@@ -86,7 +92,7 @@ export const authProfileRepository = {
         firm_id: payload.firmId,
         is_workspace_owner: Boolean(payload.isWorkspaceOwner),
       }])
-      .select('id, auth_id, firm_id, name, email, role, status, is_workspace_owner, created_at, firms!firm_id(id, name, firm_name, workspace_code, subscription_plan, subscription_status, subscription_start_date, subscription_expiry_date, max_admins, max_staff, max_clients, created_by_auth_id, created_at)')
+      .select('id, auth_id, firm_id, name, email, role, status, is_workspace_owner, created_at, firms!firm_id(id, name, firm_name, status, suspension_effective_at, suspension_mode, workspace_code, subscription_plan, subscription_status, subscription_start_date, subscription_expiry_date, max_admins, max_staff, max_clients, created_by_auth_id, created_at)')
       .single();
     if (error) throw error;
     return mapRow(data as unknown as UserProfileRow);

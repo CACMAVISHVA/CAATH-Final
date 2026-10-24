@@ -33,6 +33,20 @@ export const ClientGovernanceSidebar: React.FC<ClientGovernanceSidebarProps> = (
           </div>
         )}
 
+        {client.tan && (
+          <div>
+            <p className="text-slate-500 text-sm mb-1">TAN</p>
+            <p className="text-white font-semibold uppercase">{client.tan}</p>
+          </div>
+        )}
+
+        {client.cin_llpin && (
+          <div>
+            <p className="text-slate-500 text-sm mb-1">CIN / LLPIN</p>
+            <p className="text-white font-semibold uppercase">{client.cin_llpin}</p>
+          </div>
+        )}
+
         {client.email && (
           <div>
             <p className="text-slate-500 text-sm mb-1">Email</p>

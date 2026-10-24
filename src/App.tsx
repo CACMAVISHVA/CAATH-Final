@@ -6,8 +6,10 @@
 import React, { lazy, Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, CreditCard, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, Eye, EyeOff, Loader2, Menu, Search, ShieldCheck } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
+import { PasswordRecoveryScreen } from './components/PasswordRecoveryScreen';
+import { recoveryPending } from './lib/passwordRecovery';
 import { Dashboard } from './components/Dashboard';
 const ClientMaster = lazy(() => import('./components/ClientMaster').then((module) => ({ default: module.ClientMaster })));
 const BillingRevenue = lazy(() => import('./components/BillingRevenue').then((module) => ({ default: module.BillingRevenue })));
@@ -48,9 +50,16 @@ import {
   saveWorkspacePreferences,
 } from './services/workspacePreferencesService';
 import { authSecurityService, AuthSecuritySettings } from './services/authSecurityService';
+import { PublicMarketingSite } from './components/PublicMarketingSite';
+import { PublicLegalPage, PublicLegalPageKind } from './components/PublicLegalPage';
+import { firstValidationError, validateEmail, validateGSTIN, validateIndianMobile, validateRequiredName } from './lib/fieldValidation';
+import { validatePasswordStrength } from './lib/authSecurityUtils';
+import { clearSessionDraft, readSessionDraft, writeSessionDraft } from './hooks/useSessionDraft';
 
 const ComplianceTracker = lazy(() => import('./components/ComplianceTracker'));
+const GSTPracticeHub = lazy(() => import('./components/GSTPracticeHub'));
 const GSTIntelligenceCenter = lazy(() => import('./components/GSTIntelligenceCenter'));
+const GSTComplianceLifecycle = lazy(() => import('./components/GSTComplianceLifecycle'));
 const TaskBoard = lazy(() => import('./components/TaskBoard').then((module) => ({ default: module.TaskBoard })));
 const NoticeCenter = lazy(() => import('./components/NoticeCenter').then((module) => ({ default: module.NoticeCenter })));
 const DocumentVault = lazy(() => import('./components/DocumentVault'));
@@ -63,9 +72,14 @@ const AiFoundation = lazy(() => import('./components/ArchitectureModules').then(
 const OperationalQaInspector = lazy(() => import('./components/OperationalQaInspector'));
 const PayrollWorkspace = lazy(() => import('./components/PayrollWorkspace'));
 const GovernmentPortalHub = lazy(() => import('./components/GovernmentPortalHub'));
+const PracticeTools = lazy(() => import('./components/PracticeTools'));
+const TemplateStudio = lazy(() => import('./components/TemplateStudio'));
+const AccountingAddon = lazy(() => import('./components/AccountingAddon'));
+const PublishedRegulatoryUpdates = lazy(() => import('./components/PublishedRegulatoryUpdates'));
+const HelpCenter = lazy(() => import('./components/HelpCenter').then((module) => ({ default: module.HelpCenter })));
 
 export default function App() {
-  const { user, session, isLoading, error, login, verifyEmailOtp, resendEmailOtp, logout, refreshUser, subscriptionLocked } = useAuth();
+  const { user, session, isLoading, error, login, verifyEmailOtp, resendEmailOtp, logout, refreshUser, subscriptionLocked, isPasswordRecovery } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
@@ -74,12 +88,23 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isOperationsDrawerOpen, setIsOperationsDrawerOpen] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [workspacePrefs, setWorkspacePrefs] = useState<WorkspacePreferences>({
     pinned: [],
     recentNavigation: [],
     recentSearches: [],
   });
   const [firmName, setFirmName] = useState<string>('');
+  const isRecoveryFlow = isPasswordRecovery || recoveryPending();
+  const isPublicHome = location.pathname === '/' && !isRecoveryFlow;
+  const publicLegalPage = ({
+    '/privacy': 'privacy',
+    '/terms': 'terms',
+    '/refund-policy': 'refund-policy',
+    '/cookie-policy': 'cookie-policy',
+    '/data-deletion': 'data-deletion',
+    '/contact': 'contact',
+  } as Record<string, PublicLegalPageKind | undefined>)[location.pathname];
 
   const triggerQuickAction = useCallback((action: CommandAction | string) => {
     const dispatch = (name: string) => window.dispatchEvent(new CustomEvent('caath:quick-action', { detail: { action: name } }));
@@ -160,7 +185,7 @@ export default function App() {
         setActiveTab('approvals');
         break;
       case 'open-gst':
-        setActiveTab('gst');
+        setActiveTab('gst-practice-hub');
         break;
       case 'open-clients':
         setActiveTab('clients');
@@ -184,10 +209,6 @@ export default function App() {
       case 'quick-approve':
         setActiveTab('approvals');
         setTimeout(() => dispatch('quick-approve'), 50);
-        break;
-      case 'open-ai-queue':
-        setActiveTab('tasks');
-        setTimeout(() => dispatch('open-ai-queue'), 50);
         break;
       case 'dispatch-ai-nudges':
         setTimeout(() => dispatch('dispatch-ai-nudges'), 50);
@@ -227,12 +248,13 @@ export default function App() {
 
   const navigateToTab = useCallback((tab: string) => {
     setActiveTab(tab);
+    setIsMobileNavOpen(false);
     if (tab === 'subscription') {
       navigate('/settings/subscription');
       return;
     }
     if (location.pathname === '/settings/subscription') {
-      navigate('/');
+      navigate('/app');
     }
   }, [location.pathname, navigate]);
 
@@ -251,6 +273,25 @@ export default function App() {
   const allowedTabs = useMemo(() => (user ? ROLE_ACCESS[user.role] : []), [user]);
 
   useEffect(() => {
+    if (!user || location.pathname !== '/app' || new URLSearchParams(location.search).has('tab')) return;
+    try {
+      const restoredTab = window.sessionStorage.getItem(`caath:last-tab:${user.id}`);
+      if (restoredTab && allowedTabs.includes(restoredTab)) setActiveTab(restoredTab);
+    } catch {
+      // Navigation recovery is a convenience; storage restrictions must not block the workspace.
+    }
+  }, [allowedTabs, location.pathname, location.search, user]);
+
+  useEffect(() => {
+    if (!user || !allowedTabs.includes(activeTab)) return;
+    try {
+      window.sessionStorage.setItem(`caath:last-tab:${user.id}`, activeTab);
+    } catch {
+      // The active workspace remains usable when session storage is unavailable.
+    }
+  }, [activeTab, allowedTabs, user]);
+
+  useEffect(() => {
     if (!user) return;
     if (!allowedTabs.includes(activeTab)) {
       setActiveTab(ROLE_HOME[user.role]);
@@ -260,8 +301,19 @@ export default function App() {
   useEffect(() => {
     if (location.pathname === '/settings/subscription') {
       setActiveTab('subscription');
+      return;
     }
-  }, [location.pathname]);
+    if (location.pathname === '/app') {
+      const requestedTab = new URLSearchParams(location.search).get('tab');
+      if (requestedTab && user && allowedTabs.includes(requestedTab)) setActiveTab(requestedTab);
+    }
+  }, [allowedTabs, location.pathname, location.search, user]);
+
+  useEffect(() => {
+    if (!user || location.pathname !== '/login' || isRecoveryFlow) return;
+    const next = new URLSearchParams(location.search).get('next');
+    navigate(next === 'subscription' ? '/settings/subscription' : '/app', { replace: true });
+  }, [isRecoveryFlow, location.pathname, location.search, navigate, user]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -341,18 +393,42 @@ export default function App() {
     return login(email, password, rememberMe);
   };
 
+  if (isRecoveryFlow) return <PasswordRecoveryScreen />;
+
+  if (publicLegalPage) {
+    return <PublicLegalPage page={publicLegalPage} onHome={() => navigate('/')} onLogin={() => navigate('/login')} />;
+  }
+
+  if (isPublicHome) {
+    return (
+      <PublicMarketingSite
+        isSignedIn={Boolean(user)}
+        onLogin={() => navigate('/login')}
+        onOpenWorkspace={() => navigate('/app')}
+        onChoosePlan={(plan) => navigate(user
+          ? `/settings/subscription?plan=${encodeURIComponent(plan)}`
+          : `/login?auth=signup&plan=${encodeURIComponent(plan)}`)}
+        onRenew={() => navigate('/login?next=subscription')}
+      />
+    );
+  }
+
   const renderContent = () => {
+    if (user && activeTab === 'help') {
+      return wrap(<HelpCenter user={user} onNavigate={setActiveTab} />, <PageLoader />);
+    }
+
+    if (user && activeTab === 'subscription') {
+      return <ProtectedRoute roles={['GodAdmin', 'SuperAdmin']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
+    }
+
     if (!user || !canAccessTab(user, activeTab)) {
       return <ProtectedRoute roles={[]}><Dashboard /></ProtectedRoute>;
     }
 
-    const subscriptionAllowedTabs = ['dashboard', 'billing', 'subscription', 'firm-profile', 'workspace-settings'];
+    const subscriptionAllowedTabs = ['dashboard', 'billing', 'subscription', 'firm-profile', 'workspace-settings', 'help'];
     if (subscriptionLocked && !subscriptionAllowedTabs.includes(activeTab)) {
       return <LockedModuleOverlay onActivate={openSubscriptionPage} />;
-    }
-
-    if (activeTab === 'subscription') {
-      return <ProtectedRoute roles={['GodAdmin', 'SuperAdmin']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
     }
 
     if (user.role === 'GodAdmin') {
@@ -476,12 +552,21 @@ export default function App() {
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<ClientMaster assignedOnly={user.role === 'Staff'} assignedClients={user.assignedClients} />)}</ProtectedRoute>;
       case 'compliance':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<ComplianceTracker />)}</ProtectedRoute>;
+      case 'gst-practice-hub':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<GSTPracticeHub onNavigate={setActiveTab} />)}</ProtectedRoute>;
+      case 'gst-filing-matrix':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<GSTPracticeHub onNavigate={setActiveTab} initialView="matrix" />)}</ProtectedRoute>;
       case 'gst':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}><GSTIntelligenceCenter /></ProtectedRoute>;
+      case 'gst-lifecycle':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<GSTComplianceLifecycle />)}</ProtectedRoute>;
+      case 'regulatory-updates':
+        return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<PublishedRegulatoryUpdates />)}</ProtectedRoute>;
       case 'portal-gst':
       case 'portal-income-tax':
       case 'portal-mca':
       case 'portal-traces':
+      case 'portal-login':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<GovernmentPortalHub initialPortalTab={activeTab} />)}</ProtectedRoute>;
       case 'tasks':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<TaskBoard />)}</ProtectedRoute>;
@@ -520,13 +605,19 @@ export default function App() {
       case 'automation':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<AutomationCenter />)}</ProtectedRoute>;
       case 'notifications':
-        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<NotificationRuntimeCenter />)}</ProtectedRoute>;
+        return <ProtectedRoute roles={['GodAdmin', 'SuperAdmin', 'Admin', 'Staff']}>{wrap(<NotificationRuntimeCenter />)}</ProtectedRoute>;
       case 'ai':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin']}>{wrap(<AiFoundation />)}</ProtectedRoute>;
       case 'payroll':
         return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<PayrollWorkspace />)}</ProtectedRoute>;
+      case 'practice-tools':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<PracticeTools />)}</ProtectedRoute>;
+      case 'template-studio':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<TemplateStudio />)}</ProtectedRoute>;
+      case 'accounting-addon':
+        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<AccountingAddon />)}</ProtectedRoute>;
       case 'billing':
-        return <ProtectedRoute roles={['SuperAdmin', 'Admin', 'Staff']}>{wrap(<BillingRevenue onActivateSubscription={openSubscriptionPage} />)}</ProtectedRoute>;
+        return <ProtectedRoute roles={['SuperAdmin']}>{wrap(<BillingRevenue onActivateSubscription={openSubscriptionPage} />)}</ProtectedRoute>;
       case 'subscription':
         return <ProtectedRoute roles={['SuperAdmin']}><SubscriptionSettingsPage user={user} onSubscriptionChanged={refreshUser} /></ProtectedRoute>;
       case 'user-management':
@@ -570,9 +661,9 @@ export default function App() {
       <div className="h-screen w-screen flex items-center justify-center bg-matte-black text-white p-6">
         <div className="max-w-lg rounded-3xl border border-slate-800 bg-matte-black-light p-8 text-center shadow-2xl">
           <ShieldCheck className="mx-auto h-12 w-12 text-gold" />
-          <h2 className="mt-5 text-2xl font-bold gold-text-gradient">Session Active</h2>
+          <h2 className="mt-5 text-2xl font-bold gold-text-gradient">Workspace Setup Needs Attention</h2>
           <p className="mt-3 text-sm text-slate-400">
-            Your authentication session is still valid, but CAATH could not find the linked workspace profile row in public.users.
+            Your sign-in is secure, but the workspace could not be loaded completely. Try loading it again.
           </p>
           {error && <p className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">{error}</p>}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
@@ -580,7 +671,7 @@ export default function App() {
               onClick={refreshUser}
               className="rounded-xl bg-gold px-4 py-2 text-sm font-bold text-black transition hover:bg-gold-light"
             >
-              Retry Workspace Load
+              Try Again
             </button>
             <button
               onClick={handleLogout}
@@ -599,41 +690,48 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-matte-black text-white">
+    <div className="flex h-[100dvh] min-h-0 bg-matte-black text-white">
+      {isMobileNavOpen && <button type="button" aria-label="Close navigation" onClick={() => setIsMobileNavOpen(false)} className="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm lg:hidden" />}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={navigateToTab}
         user={user}
         onLogout={handleLogout}
         onProfileOpen={handleProfileOpen}
+        isOpen={isMobileNavOpen}
+        onClose={() => setIsMobileNavOpen(false)}
       />
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <header className="h-14 shrink-0 border-b border-slate-800 bg-matte-black-light/40 px-5 flex items-center">
-          <div className="flex-1">
+        <header className="min-h-14 shrink-0 border-b border-slate-800 bg-matte-black-light/40 px-3 py-2 sm:px-5 flex items-center gap-3">
+          <button type="button" aria-label="Open navigation" onClick={() => setIsMobileNavOpen(true)} className="flex h-11 w-11 shrink-0 items-center justify-center border border-slate-800 text-slate-300 lg:hidden">
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1">
             <p className="text-[10px] text-slate-500 uppercase tracking-[0.18em] font-bold">Protected Workspace</p>
-            <p className="text-sm text-slate-300">
+            <p className="truncate text-xs text-slate-300 sm:text-sm">
               {getUserFullName(user, session)} | {getUserDisplayRole(user)} | {user.role === 'GodAdmin' ? 'CAATH Platform' : `${firmName || 'Enterprise Workspace'} (${formatWorkspaceAlias(user.firmId)})`}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {!onboardingCompleted && (
               <button
                 onClick={handleOnboardingResume}
-                className="border border-slate-800 px-3 py-2 text-xs font-bold text-gold transition-colors hover:border-gold/40"
+                className="hidden border border-slate-800 px-3 py-2 text-xs font-bold text-gold transition-colors hover:border-gold/40 sm:block"
               >
                 Resume Tour
               </button>
             )}
             <button
               onClick={() => setIsSearchOpen(true)}
-              className="border border-slate-800 px-3 py-2 text-xs font-bold text-slate-400 transition-colors hover:border-gold/40 hover:text-white"
+              aria-label="Search"
+              className="flex h-11 items-center gap-2 border border-slate-800 px-3 text-xs font-bold text-slate-400 transition-colors hover:border-gold/40 hover:text-white"
             >
-              Search (Ctrl+K)
+              <Search className="h-4 w-4" /><span className="hidden md:inline">Search (Ctrl+K)</span>
             </button>
             {user.role !== 'Client' && (
               <button
                 onClick={() => setIsOperationsDrawerOpen(true)}
-                className="flex items-center gap-2 border border-slate-800 px-3 py-2 text-xs font-bold text-slate-300 transition-colors hover:border-gold/40 hover:text-white"
+                className="hidden items-center gap-2 border border-slate-800 px-3 py-2 text-xs font-bold text-slate-300 transition-colors hover:border-gold/40 hover:text-white sm:flex"
               >
                 Operations
               </button>
@@ -641,7 +739,7 @@ export default function App() {
           </div>
         </header>
         {subscriptionLocked && (
-          <div className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-3 text-sm text-amber-100 flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <span>Your subscription is inactive. Please activate a subscription plan to continue using CAATH PMS.</span>
             <button
               onClick={openSubscriptionPage}
@@ -651,7 +749,12 @@ export default function App() {
             </button>
           </div>
         )}
-        <section className="flex-1 overflow-hidden">
+        {user.firm?.status === 'Suspended' && user.firm.suspensionMode === 'Grace Period' && user.firm.suspensionEffectiveAt && new Date(user.firm.suspensionEffectiveAt).getTime() > Date.now() && (
+          <div className="border-b border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100 sm:px-5" role="status">
+            This workspace is in a suspension grace period. Access will be blocked after {new Date(user.firm.suspensionEffectiveAt).toLocaleDateString('en-IN')}. Your stored data is not being deleted. Contact CAATH support to resolve the suspension.
+          </div>
+        )}
+        <section className="caath-workspace-content min-h-0 flex-1 overflow-hidden">
           {renderContent()}
         </section>
       </main>
@@ -752,6 +855,8 @@ const WorkspaceSettingsPanel: React.FC<{ user: NonNullable<ReturnType<typeof use
   </div>
 );
 
+const displayCapacityLimit = (value: number | null | undefined, fallback: number) => value !== null && value !== undefined && value < 0 ? 'Unlimited' : String(value ?? fallback);
+
 const FirmProfilePanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth>['user']> }> = ({ user }) => (
   <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
     <h2 className="text-2xl font-bold gold-text-gradient">Firm Profile</h2>
@@ -759,10 +864,10 @@ const FirmProfilePanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth>[
     <div className="mt-6 border border-slate-800 bg-matte-black-light p-6">
       <div className="grid gap-4 md:grid-cols-2">
         <ProfileField label="Firm Name" value={user.firm?.name || 'Workspace'} />
-        <ProfileField label="Plan" value={user.firm?.subscriptionPlan || 'Starter'} />
-        <ProfileField label="Max Admins" value={String(user.firm?.maxAdmins ?? 1)} />
-        <ProfileField label="Max Staff" value={String(user.firm?.maxStaff ?? 3)} />
-        <ProfileField label="Max Clients" value={String(user.firm?.maxClients ?? 25)} />
+        <ProfileField label="Plan" value={user.firm?.subscriptionPlan || 'CAATH Practice OS'} />
+        <ProfileField label="Max Admins" value={displayCapacityLimit(user.firm?.maxAdmins, 1)} />
+        <ProfileField label="Max Staff" value={displayCapacityLimit(user.firm?.maxStaff, 3)} />
+        <ProfileField label="Max Clients" value={displayCapacityLimit(user.firm?.maxClients, 25)} />
         <ProfileField label="Renewal Date" value={user.firm?.subscriptionExpiryDate ? new Date(user.firm.subscriptionExpiryDate).toLocaleDateString() : 'Not scheduled'} />
       </div>
     </div>
@@ -897,8 +1002,8 @@ const LoginActivityPanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth
     <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
       <h2 className="text-2xl font-bold gold-text-gradient">Login Activity</h2>
       <p className="mt-1 text-sm text-slate-500">{user.role === 'SuperAdmin' ? 'Organization-wide authentication audit trail.' : 'Your authentication audit trail.'}</p>
-      <div className="mt-6 overflow-hidden border border-slate-800 bg-matte-black-light">
-        <table className="w-full text-left text-sm">
+      <div className="mt-6 overflow-x-auto border border-slate-800 bg-matte-black-light">
+        <table className="min-w-[760px] w-full table-fixed text-left text-sm">
           <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-500">
             <tr>
               <th className="px-4 py-3">Time</th>
@@ -945,12 +1050,14 @@ const AuthPasswordField: React.FC<{
   autoComplete?: string;
 }> = ({ name, label, placeholder, autoComplete }) => {
   const [visible, setVisible] = React.useState(false);
+  const inputId = `auth-${name}`;
 
   return (
     <div>
-      <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">{label}</label>
+      <label htmlFor={inputId} className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">{label}</label>
       <div className="relative">
         <input
+          id={inputId}
           name={name}
           type={visible ? 'text' : 'password'}
           required
@@ -979,14 +1086,25 @@ const LoginScreen: React.FC<{
   error: string | null;
   onSignupSuccess: () => void;
 }> = ({ onLogin, onVerifyOtp, onResendOtp, error, onSignupSuccess }) => {
+  const signupDraftKey = 'caath:draft:workspace-registration';
+  const signupDraft = React.useMemo(() => readSessionDraft(signupDraftKey, {
+    firmName: '',
+    fullName: '',
+    mobile: '',
+    email: '',
+    gstin: '',
+    termsConsent: false,
+    ageConsent: false,
+  }), []);
   const initialMode = React.useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    return params.get('auth') === 'recovery' || hashParams.get('type') === 'recovery' ? 'reset' : 'signin';
+    if (params.get('auth') === 'signup') return 'signup';
+    if (params.get('auth') === 'forgot') return 'forgot';
+    return 'signin';
   }, []);
-  const [authMode, setAuthMode] = React.useState<'signin' | 'signup' | 'forgot' | 'reset'>(initialMode);
+  const [authMode, setAuthMode] = React.useState<'signin' | 'signup' | 'forgot'>(initialMode);
   const [localError, setLocalError] = React.useState<string | null>(null);
-  const [notice, setNotice] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(() => new URLSearchParams(window.location.search).get('password') === 'updated' ? 'Password reset successfully. Please sign in with your new password.' : null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [otpEmail, setOtpEmail] = React.useState<string | null>(null);
   const [otpValue, setOtpValue] = React.useState('');
@@ -999,7 +1117,8 @@ const LoginScreen: React.FC<{
   const devUsers: Array<{ role: string; email: string }> = [];
   const isCreateAccount = authMode === 'signup';
   const isForgotPassword = authMode === 'forgot';
-  const isResetPassword = authMode === 'reset';
+  const isResetPassword = false;
+  const visibleAuthError = localError || (authMode === 'signin' ? error : null);
 
   React.useEffect(() => {
     if (otpEmail) {
@@ -1007,7 +1126,19 @@ const LoginScreen: React.FC<{
     }
   }, [otpEmail]);
 
-  const validateEmail = (value: string) => /.+@.+\..+/.test(value);
+  const saveSignupDraft = (event: React.FormEvent<HTMLFormElement>) => {
+    if (!isCreateAccount) return;
+    const data = new FormData(event.currentTarget);
+    writeSessionDraft(signupDraftKey, {
+      firmName: String(data.get('firmName') ?? ''),
+      fullName: String(data.get('fullName') ?? ''),
+      mobile: String(data.get('mobile') ?? ''),
+      email: String(data.get('email') ?? ''),
+      gstin: String(data.get('gstin') ?? ''),
+      termsConsent: data.get('termsConsent') === 'on',
+      ageConsent: data.get('ageConsent') === 'on',
+    });
+  };
 
   const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1017,20 +1148,53 @@ const LoginScreen: React.FC<{
 
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get('email') ?? '').trim();
-    const password = String(formData.get('password') ?? '').trim();
+    const password = String(formData.get('password') ?? '');
     const fullName = String(formData.get('fullName') ?? '').trim();
     const firmName = String(formData.get('firmName') ?? '').trim();
     const mobile = String(formData.get('mobile') ?? '').trim();
     const gstin = String(formData.get('gstin') ?? '').trim();
-    const subscriptionPlan = String(formData.get('subscriptionPlan') ?? 'Starter') as 'Starter' | 'Professional' | 'Enterprise';
+    const termsConsent = formData.get('termsConsent') === 'on';
+    const ageConsent = formData.get('ageConsent') === 'on';
 
-    if (!isResetPassword && !validateEmail(email)) {
-      setLocalError('Please enter a valid email address.');
+    const emailValidation = validateEmail(email);
+    if (!isResetPassword && !emailValidation.valid) {
+      setLocalError(emailValidation.error || 'Please enter a valid email address.');
       setIsLoading(false);
       return;
     }
 
-    if (!isForgotPassword && password.length < 8) {
+    if (isCreateAccount) {
+      if (!termsConsent) {
+        setLocalError('Please confirm that you are authorised and agree to the Terms and Privacy Policy before creating the workspace.');
+        setIsLoading(false);
+        return;
+      }
+      if (!ageConsent) {
+        setLocalError('Please confirm that you are at least 18 years old before creating the workspace.');
+        setIsLoading(false);
+        return;
+      }
+      const registrationError = firstValidationError(
+        validateRequiredName(firmName, 'Firm name'),
+        validateRequiredName(fullName, 'Full name'),
+        validateIndianMobile(mobile),
+        validateGSTIN(gstin),
+      );
+      if (registrationError) {
+        setLocalError(registrationError);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    if (isCreateAccount) {
+      const passwordStrength = validatePasswordStrength(password);
+      if (!passwordStrength.isValid) {
+        setLocalError(`${passwordStrength.errors[0]}. Use uppercase, lowercase, a number, and a symbol.`);
+        setIsLoading(false);
+        return;
+      }
+    } else if (!isForgotPassword && password.length < 8) {
       setLocalError('Password should be at least 8 characters.');
       setIsLoading(false);
       return;
@@ -1038,24 +1202,9 @@ const LoginScreen: React.FC<{
 
     if (isForgotPassword) {
       try {
-        const redirectTo = `${window.location.origin}${window.location.pathname}?auth=recovery`;
+        const redirectTo = `${window.location.origin}/login?auth=recovery`;
         await authService.sendPasswordReset(email, redirectTo);
         setNotice('If an account exists for this email, a secure reset link has been sent.');
-        setAuthMode('signin');
-      } catch (resetError) {
-        setLocalError(normalizeAuthError(resetError).userMessage);
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    if (isResetPassword) {
-      try {
-        if (password.length < 8) throw new Error('Password should be at least 8 characters.');
-        await authService.updatePassword(password);
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setNotice('Password updated. Please sign in with your new password.');
         setAuthMode('signin');
       } catch (resetError) {
         setLocalError(normalizeAuthError(resetError).userMessage);
@@ -1074,8 +1223,8 @@ const LoginScreen: React.FC<{
           fullName: fullName || email.split('@')[0] || 'New User',
           mobile,
           gstin,
-          subscriptionPlan,
         });
+        clearSessionDraft(signupDraftKey);
         await onSignupSuccess();
       } catch (signupError) {
         setLocalError(signupError instanceof WorkspaceOnboardingError
@@ -1085,8 +1234,7 @@ const LoginScreen: React.FC<{
         return;
       }
 
-      setIsLoading(false);
-      setNotice('Workspace created. Loading your secure dashboard...');
+      setNotice('Workspace created. Your 15-day free trial is active and CAATH is loading your workspace.');
     } else {
       try {
         const result = await onLogin(event);
@@ -1211,12 +1359,12 @@ const LoginScreen: React.FC<{
           {isCreateAccount ? 'Create Your CAATH Workspace' : isForgotPassword ? 'Reset Password' : isResetPassword ? 'Set New Password' : 'Sign In'}
         </h2>
         <p className="text-sm text-slate-500 mb-6">
-          {isCreateAccount ? 'Launch your secure digital practice workspace in minutes.' : isForgotPassword ? 'Request a secure account recovery link' : isResetPassword ? 'Choose a new password for your account' : 'Secure access to your practice workspace'}
+          {isCreateAccount ? 'Start a 15-day free trial immediately. No plan, payment or God Admin approval is required.' : isForgotPassword ? 'Request a secure account recovery link' : isResetPassword ? 'Choose a new password for your account' : 'Secure access to your practice workspace'}
         </p>
 
         {isCreateAccount && (
           <div className="mb-6 grid grid-cols-3 gap-2 text-center text-[10px] uppercase tracking-wider">
-            {['Account Details', 'Email Verification', 'Account Activated'].map((step, index) => (
+            {['Account Details', 'Workspace Created', '15-Day Trial'].map((step, index) => (
               <div key={step} className="border border-slate-800 bg-matte-black p-2 text-slate-400">
                 <div className="mx-auto mb-1 flex h-5 w-5 items-center justify-center bg-gold/10 text-gold">
                   {index === 0 ? <CheckCircle2 className="h-3 w-3" /> : index + 1}
@@ -1226,10 +1374,9 @@ const LoginScreen: React.FC<{
             ))}
           </div>
         )}
-
-        {(error || localError) && (
+        {visibleAuthError && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-sm text-red-300">
-            {error || localError}
+            {visibleAuthError}
           </div>
         )}
         {notice && (
@@ -1238,42 +1385,56 @@ const LoginScreen: React.FC<{
           </div>
         )}
 
-        <form onSubmit={handleAuth} className="space-y-4">
+        <form key={authMode} onSubmit={handleAuth} onInput={saveSignupDraft} onChange={saveSignupDraft} noValidate className="space-y-4">
           {!isResetPassword && (
             <div>
               {isCreateAccount && (
                 <>
-                  <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Firm Name</label>
+                  <label htmlFor="signup-firm-name" className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Firm Name</label>
                   <input
+                    id="signup-firm-name"
                     name="firmName"
                     type="text"
                     required
+                    defaultValue={signupDraft.firmName}
                     placeholder="Your firm name"
                     className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600 mb-4"
                   />
-                  <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Full Name</label>
+                  <label htmlFor="signup-full-name" className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Full Name</label>
                   <input
+                    id="signup-full-name"
                     name="fullName"
                     type="text"
                     required
+                    defaultValue={signupDraft.fullName}
                     placeholder="Your full name"
                     className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600 mb-4"
                   />
-                  <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Mobile Number</label>
+                  <label htmlFor="signup-mobile" className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Mobile Number (account security and payment support)</label>
                   <input
+                    id="signup-mobile"
                     name="mobile"
                     type="tel"
                     required
+                    defaultValue={signupDraft.mobile}
                     placeholder="+91 9876543210"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    maxLength={14}
+                    pattern="(?:\+91[ -]?)?[6-9][0-9]{9}"
+                    title="Enter a valid 10-digit Indian mobile number"
                     className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600 mb-4"
                   />
+                  <p className="-mt-2 mb-4 text-xs leading-5 text-slate-500">We use this only for account security and payment support. GSTIN is optional, and client data is not requested during signup.</p>
                 </>
               )}
-              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Email</label>
+              <label htmlFor="auth-email" className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Email</label>
               <input
+                id="auth-email"
                 name="email"
                 type="email"
                 required
+                defaultValue={isCreateAccount ? signupDraft.email : ''}
                 placeholder="you@firm.com"
                 className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
               />
@@ -1281,22 +1442,37 @@ const LoginScreen: React.FC<{
           )}
           {!isForgotPassword && isCreateAccount && (
             <div>
-              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">GSTIN (Optional)</label>
-              <input
-                name="gstin"
-                type="text"
-                placeholder="22AAAAA0000A1Z5"
+              <label htmlFor="signup-gstin" className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">GSTIN (Optional)</label>
+                <input
+                  id="signup-gstin"
+                  name="gstin"
+                  type="text"
+                  defaultValue={signupDraft.gstin}
+                  placeholder="22AAAAA0000A1Z5"
+                  maxLength={15}
+                  autoCapitalize="characters"
+                  pattern="(?:[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z]Z[0-9A-Za-z])?"
+                  title="Enter a valid 15-character GSTIN"
                 className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none placeholder:text-slate-600"
               />
             </div>
           )}
           {!isForgotPassword && (
-            <AuthPasswordField
-              name="password"
-              label={isResetPassword ? 'New Password' : 'Password'}
-              placeholder={isResetPassword ? 'Enter new password' : 'Enter password'}
-              autoComplete={isResetPassword ? 'new-password' : 'current-password'}
-            />
+            <>
+              <AuthPasswordField
+                name="password"
+                label={isResetPassword ? 'New Password' : 'Password'}
+                placeholder={isResetPassword ? 'Enter new password' : 'Enter password'}
+                autoComplete={isResetPassword || isCreateAccount ? 'new-password' : 'current-password'}
+              />
+              {isCreateAccount && <p className="text-xs leading-5 text-slate-500">Use a unique 12+ character password with uppercase, lowercase, a number, and a symbol. Avoid names, years, and commonly used passwords.</p>}
+            </>
+          )}
+          {isResetPassword && (
+            <>
+              <AuthPasswordField name="confirmPassword" label="Confirm New Password" placeholder="Re-enter new password" autoComplete="new-password" />
+              <p className="text-xs leading-5 text-slate-500">Use 12+ characters with uppercase, lowercase, a number, and a symbol.</p>
+            </>
           )}
           {!isCreateAccount && !isForgotPassword && !isResetPassword && (
             <label className="flex items-center gap-2 text-xs text-slate-400">
@@ -1309,22 +1485,21 @@ const LoginScreen: React.FC<{
             </label>
           )}
           {isCreateAccount && (
-            <div>
-              <label className="block text-xs text-slate-500 uppercase tracking-wider font-bold mb-2">Subscription Plan</label>
-              <select
-                name="subscriptionPlan"
-                className="w-full px-4 py-2 bg-matte-black border border-slate-800 text-sm text-white focus:ring-1 focus:ring-gold outline-none"
-                defaultValue="Starter"
-              >
-                <option value="Starter">Starter</option>
-                <option value="Professional">Professional</option>
-                <option value="Enterprise">Enterprise</option>
-              </select>
+            <div className="space-y-3">
+              <label className="flex items-start gap-3 text-xs leading-5 text-slate-300">
+                <input name="termsConsent" type="checkbox" required defaultChecked={signupDraft.termsConsent} className="mt-1 h-4 w-4 shrink-0 accent-gold" />
+                <span>I am authorised to create this workspace and agree to the <a href="/terms" className="font-bold text-gold hover:underline">Terms</a> and <a href="/privacy" className="font-bold text-gold hover:underline">Privacy Policy</a>. I understand that paid access requires a subscription after the free trial.</span>
+              </label>
+              <label className="flex items-start gap-3 text-xs leading-5 text-slate-300">
+                <input name="ageConsent" type="checkbox" required defaultChecked={signupDraft.ageConsent} className="mt-1 h-4 w-4 shrink-0 accent-gold" />
+                <span>I confirm that I am at least 18 years old and legally able to create this business workspace.</span>
+              </label>
+              <p className="text-xs leading-5 text-slate-400">We use your registration details only to create and secure the workspace, provide support, and handle billing. We do not add you to marketing email without a separate choice.</p>
             </div>
           )}
           <button type="submit" disabled={isLoading} className="flex w-full items-center justify-center gap-2 py-2.5 bg-gold text-matte-black font-bold hover:bg-gold-light disabled:opacity-50 transition-colors">
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isLoading ? 'Processing...' : isCreateAccount ? 'Create Workspace' : isForgotPassword ? 'Send Reset Link' : isResetPassword ? 'Update Password' : 'Sign In'}
+            {isLoading ? 'Processing...' : isCreateAccount ? 'Create Workspace & Start Trial' : isForgotPassword ? 'Send Reset Link' : isResetPassword ? 'Update Password' : 'Sign In'}
           </button>
         </form>
 

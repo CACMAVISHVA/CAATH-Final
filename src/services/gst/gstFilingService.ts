@@ -5,6 +5,7 @@
 
 import { GSTRFiling, GSTDashboardSummary } from './gstTypes';
 import { gstService } from '../../domains/gst/services/gstService';
+import { supabase } from '../../lib/supabase';
 
 export const createGSTRFiling = async (filing: Omit<GSTRFiling, 'id' | 'created_at'>): Promise<GSTRFiling> => {
   return gstService.createGSTRFiling(filing);
@@ -19,7 +20,11 @@ export const getAllGSTRFilings = async (firmId: string): Promise<GSTRFiling[]> =
 };
 
 export const getGSTDashboardSummary = async (firmId: string): Promise<GSTDashboardSummary> => {
-  const filings = await getAllGSTRFilings(firmId);
+  const [filings, gstClientsResult] = await Promise.all([
+    getAllGSTRFilings(firmId),
+    supabase.from('clients').select('id', { count: 'exact', head: true }).eq('firm_id', firmId).contains('services', ['GST Filing']),
+  ]);
+  if (gstClientsResult.error) throw gstClientsResult.error;
 
   const summary: GSTDashboardSummary = {
     totalClientsWithGST: 0,
@@ -31,8 +36,9 @@ export const getGSTDashboardSummary = async (firmId: string): Promise<GSTDashboa
     monthlyTrend: [],
   };
 
-  const clientsWithGST = new Set(filings.map(f => f.client_id));
-  summary.totalClientsWithGST = clientsWithGST.size;
+  // A GST client belongs in the firm summary as soon as GST Filing is assigned;
+  // GSTIN collection is a setup requirement, not a reason to hide active work.
+  summary.totalClientsWithGST = gstClientsResult.count || 0;
 
   const today = new Date();
 

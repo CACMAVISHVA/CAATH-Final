@@ -155,7 +155,10 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ className })
                         "p-3 border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors cursor-pointer",
                         notif.status === 'UNREAD' && "bg-slate-800/20"
                       )}
-                      onClick={() => notif.status === 'UNREAD' && handleMarkAsRead(notif.id)}
+                      onClick={() => {
+                        if (notif.status === 'UNREAD') handleMarkAsRead(notif.id);
+                        if (notif.action_url?.startsWith('/app?')) window.location.assign(notif.action_url);
+                      }}
                     >
                       <div className="flex gap-3">
                         <div className={cn(

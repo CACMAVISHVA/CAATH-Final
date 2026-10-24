@@ -177,7 +177,7 @@ const DrilldownModal: React.FC<{ view: DrilldownView; onClose: () => void; invoi
         )}
         {view !== 'profit' ? (
           <div className="flex-1 overflow-auto">
-            <table className="w-full text-left">
+            <table className="min-w-[720px] w-full table-fixed text-left">
               <thead className="sticky top-0 bg-matte-black-light">
                 <tr className="border-b border-slate-800">
                   {['Invoice', 'Client', 'Date', 'Amount', 'Total', 'Status'].map((head) => <th key={head} className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">{head}</th>)}

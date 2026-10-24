@@ -4,7 +4,7 @@
  */
 
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { CreditCard, Download, FileText, Plus, Search } from 'lucide-react';
+import { CreditCard, Download, FileText, ImagePlus, Plus, Search } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 import { AnalyticsLoader } from './loaders/AnalyticsLoader';
@@ -12,6 +12,8 @@ import { ExportModal, ExportOptions, exportData } from './ExportModal';
 import { Modal } from './Modal';
 import { useAuth } from '../context/AuthContext';
 import { getRevenueIntelligenceSnapshot, RevenueIntelligenceSnapshot } from '../services/revenueIntelligenceService';
+import { getFirmLogoUrl, uploadFirmLogo } from '../services/firmBrandingService';
+import { InvoiceComposer, InvoiceTemplate } from './InvoiceComposer';
 
 const BillingAnalytics = lazy(() => import('./BillingAnalytics'));
 
@@ -75,6 +77,18 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
   const [chartData, setChartData] = useState<ChartPoint[]>([]);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRow | null>(null);
+  const [firmLogoUrl, setFirmLogoUrl] = useState<string | null>(null);
+  const [logoMessage, setLogoMessage] = useState('');
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [invoiceTemplate, setInvoiceTemplate] = useState<InvoiceTemplate>(() => (localStorage.getItem('caath-invoice-template') as InvoiceTemplate) || 'Classic');
+
+  useEffect(() => { localStorage.setItem('caath-invoice-template', invoiceTemplate); }, [invoiceTemplate]);
+
+  useEffect(() => {
+    if (!user?.firmId) return;
+    getFirmLogoUrl(user.firmId).then(setFirmLogoUrl).catch(() => setFirmLogoUrl(null));
+  }, [user?.firmId]);
 
   useEffect(() => {
     const loadBilling = async () => {
@@ -147,9 +161,18 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
 
   const subscriptionStatus = user?.firm?.subscriptionStatus;
 
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+    setLogoBusy(true); setLogoMessage('');
+    try { setFirmLogoUrl(await uploadFirmLogo(file, user)); setLogoMessage('Firm logo saved. It will now appear automatically on invoices.'); }
+    catch (uploadError) { setLogoMessage(uploadError instanceof Error ? uploadError.message : 'Unable to upload the logo.'); }
+    finally { setLogoBusy(false); event.target.value = ''; }
+  };
+
   return (
-    <div className="p-6 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
-      <div className="flex items-center justify-between">
+    <div className="caath-page p-4 sm:p-6 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold gold-text-gradient">Subscription & Billing</h2>
           <p className="text-sm text-slate-500">Manage workspace subscription, payments, invoices, and practice revenue.</p>
@@ -191,6 +214,16 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
           </div>
         </div>
       )}
+
+      <div className="flex flex-col gap-4 border border-slate-800 bg-matte-black-light p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex h-16 w-28 items-center justify-center border border-white/10 bg-white p-2">
+            {firmLogoUrl ? <img src={firmLogoUrl} alt={`${user?.firm?.name || 'Firm'} logo`} className="max-h-full max-w-full object-contain" /> : <ImagePlus className="h-7 w-7 text-slate-400" />}
+          </div>
+          <div><h3 className="font-bold text-white">Invoice Logo</h3><p className="mt-1 text-sm text-slate-500">Automatically shown at the top of invoice previews and issued invoices.</p>{logoMessage && <p className="mt-1 text-xs text-gold-light">{logoMessage}</p>}</div>
+        </div>
+        {user?.role === 'SuperAdmin' && <label className="cursor-pointer bg-gold px-4 py-2 text-center text-sm font-black text-black"><input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={logoBusy} onChange={handleLogoUpload}/>{logoBusy ? 'Uploading…' : firmLogoUrl ? 'Change Logo' : 'Upload Logo'}</label>}
+      </div>
 
       <Suspense fallback={<AnalyticsLoader />}>
         <BillingAnalytics />
@@ -246,7 +279,8 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
             </button>
           </div>
         </div>
-        <table className="w-full text-left">
+        <div className="overflow-x-auto">
+        <table className="min-w-[660px] w-full table-fixed text-left">
           <thead>
             <tr className="border-b border-slate-800">
               {['Invoice', 'Client', 'Type', 'Amount', 'Status'].map((head) => <th key={head} className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">{head}</th>)}
@@ -256,7 +290,7 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
             {invoices.length === 0 ? (
               <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">No invoices found for this workspace.</td></tr>
             ) : invoices.map((invoice) => (
-              <tr key={invoice.id} className="hover:bg-slate-800/30 transition-colors">
+              <tr key={invoice.id} onClick={() => setSelectedInvoice(invoice)} className="cursor-pointer hover:bg-slate-800/30 transition-colors">
                 <td className="px-4 py-3"><p className="text-xs font-bold text-white">{invoice.invoice_number}</p><p className="text-[10px] text-slate-500">{invoice.issue_date ? new Date(invoice.issue_date).toLocaleDateString('en-IN') : '-'}</p></td>
                 <td className="px-4 py-3 text-xs text-slate-300">{invoice.client_name}</td>
                 <td className="px-4 py-3"><span className="px-2 py-0.5 bg-slate-800 text-slate-400 text-[10px] font-bold uppercase">{invoice.billing_category || 'General'}</span></td>
@@ -266,16 +300,27 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       <Modal isOpen={showInvoiceModal} onClose={() => setShowInvoiceModal(false)} title="Create New Invoice" size="lg" contentClassName="space-y-4">
-        <div className="border border-slate-800 bg-matte-black p-4 text-sm text-slate-400">
-          Invoice creation is connected to workspace clients. Select a real client before creating an invoice.
-          <select className="mt-3 w-full border border-slate-800 bg-matte-black-light px-3 py-2 text-sm text-white">
-            <option value="">Select Client</option>
-            {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
-          </select>
-        </div>
+        {user && <InvoiceComposer clients={clients} user={user} logoUrl={firmLogoUrl} template={invoiceTemplate} onTemplateChange={setInvoiceTemplate} onCreated={(invoice, clientName) => {
+          const row: InvoiceRow = { ...invoice, client_name: clientName, billing_category: invoice.billing_category || null, issue_date: invoice.issue_date || null, due_date: invoice.due_date || null, created_at: invoice.created_at || null };
+          setInvoices(current => [row, ...current]); setShowInvoiceModal(false); setSelectedInvoice(row);
+        }} />}
+      </Modal>
+
+      <Modal isOpen={!!selectedInvoice} onClose={() => setSelectedInvoice(null)} title="Invoice Preview" size="lg">
+        {selectedInvoice && <div className={cn('bg-white p-7 text-slate-900', invoiceTemplate === 'Modern' && 'border-t-8 border-gold', invoiceTemplate === 'Minimal' && 'font-sans')}>
+          <div className={cn('flex items-start justify-between pb-5', invoiceTemplate !== 'Minimal' && 'border-b border-slate-200')}>
+            <div>{firmLogoUrl ? <img src={firmLogoUrl} alt="Firm invoice logo" className="h-20 w-40 object-contain object-left" /> : <h3 className="text-xl font-black">{user?.firm?.name || 'Firm'}</h3>}</div>
+            <div className="text-right"><p className={cn('text-2xl font-black text-slate-900', invoiceTemplate === 'Modern' && 'text-[#8f641c]')}>TAX INVOICE</p><p className="mt-1 text-sm text-slate-500">{selectedInvoice.invoice_number} · {invoiceTemplate}</p></div>
+          </div>
+          <div className="grid grid-cols-2 gap-6 py-6 text-sm"><div><p className="text-xs font-bold uppercase text-slate-400">Bill to</p><p className="mt-2 text-lg font-bold">{selectedInvoice.client_name}</p></div><div className="text-right"><p>Issued: {selectedInvoice.issue_date ? new Date(selectedInvoice.issue_date).toLocaleDateString('en-IN') : '—'}</p><p>Due: {selectedInvoice.due_date ? new Date(selectedInvoice.due_date).toLocaleDateString('en-IN') : '—'}</p></div></div>
+          <div className="border-y border-slate-200 py-5 text-right"><p className="text-sm text-slate-500">Invoice total</p><p className="mt-1 text-3xl font-black">{formatINR(selectedInvoice.total)}</p><p className="mt-1 text-sm">Status: {selectedInvoice.status}</p></div>
+          <p className="pt-5 text-xs text-slate-400">Generated through CAATH — Chartered Artificial Assistant for Technical Hegemony</p>
+          <button onClick={() => window.print()} className="mt-5 bg-gold px-4 py-2 text-sm font-black text-black">Print / Save PDF</button>
+        </div>}
       </Modal>
 
       <ExportModal isOpen={showExportModal} onClose={() => setShowExportModal(false)} title="Billing Report" onExport={handleExport} recordCount={invoices.length} />
@@ -286,7 +331,7 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
 const LimitTile: React.FC<{ label: string; value: number }> = ({ label, value }) => (
   <div className="border border-slate-800 bg-matte-black p-3">
     <p className="text-[10px] uppercase text-slate-500">{label}</p>
-    <p className="text-lg font-bold text-white">{value}</p>
+    <p className="text-lg font-bold text-white">{value < 0 ? 'Unlimited' : value}</p>
   </div>
 );
 

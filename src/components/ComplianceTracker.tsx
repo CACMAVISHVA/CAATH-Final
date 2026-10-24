@@ -331,8 +331,8 @@ const ComplianceTracker: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden border border-slate-800 bg-matte-black-light">
-          <table className="w-full text-left">
+        <div className="overflow-x-auto border border-slate-800 bg-matte-black-light">
+          <table className="min-w-[760px] w-full table-fixed text-left">
             <thead className="bg-matte-black">
               <tr>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase text-slate-500">Client & Compliance</th>

@@ -25,7 +25,6 @@ export type CommandAction =
   | 'bulk-resolve'
   | 'quick-approve'
   | 'open-notification-center'
-  | 'open-ai-queue'
   | 'dispatch-ai-nudges'
   | 'enter-deep-work'
   | 'enter-rapid-triage'
@@ -79,7 +78,6 @@ const ALL_COMMANDS: CommandItem[] = [
   { id: 'bulk-resolve', title: 'Bulk Resolve', subtitle: 'Resolve selected workflow items together', tab: 'tasks', roles: ['SuperAdmin', 'Admin', 'Staff'], keywords: 'bulk action resolve close complete tasks' },
   { id: 'quick-approve', title: 'Quick Approve', subtitle: 'Approve selected governance-ready records', tab: 'approvals', roles: ['GodAdmin', 'SuperAdmin', 'Admin'], keywords: 'quick approve approval release documents' },
   { id: 'open-notification-center', title: 'Open Notification Center', subtitle: 'Review grouped action-ready alerts', tab: 'notifications', roles: ['SuperAdmin', 'Admin', 'Staff'], keywords: 'notifications alerts priority inbox center' },
-  { id: 'open-ai-queue', title: 'Open AI Task Queue', subtitle: 'Focus highest urgency AI-ranked workflows', tab: 'tasks', roles: ['SuperAdmin', 'Admin', 'Staff'], keywords: 'ai queue sla urgency prioritize', pinDefault: true },
   { id: 'dispatch-ai-nudges', title: 'Dispatch AI Nudges', subtitle: 'Trigger governed AI operational reminders', tab: 'dashboard', roles: ['SuperAdmin', 'Admin'], keywords: 'ai nudge reminder escalation' },
   { id: 'enter-deep-work', title: 'Enter Deep Work Mode', subtitle: 'Switch workspace into distraction-free execution', tab: 'workspace', roles: ['SuperAdmin', 'Admin', 'Staff'], keywords: 'deep work focus mode compact execution' },
   { id: 'enter-rapid-triage', title: 'Enter Rapid Triage', subtitle: 'Prioritize queue traversal and SLA handling', tab: 'workspace', roles: ['SuperAdmin', 'Admin', 'Staff'], keywords: 'rapid triage queue navigation sla sorting' },
@@ -96,9 +94,37 @@ const ALL_COMMANDS: CommandItem[] = [
   { id: 'open-knowledge-graph', title: 'Open Knowledge Graph', subtitle: 'Explore cross-domain operational relationships', tab: 'learning', roles: ['SuperAdmin', 'Admin', 'Staff'], keywords: 'knowledge graph relationships federation organizational intelligence' },
 ];
 
+const HIDDEN_PROTOTYPE_COMMANDS = new Set<CommandAction>([
+    'open-realtime-workspace',
+    'open-analytics',
+    'open-ai-copilot',
+    'open-learning',
+    'open-governance',
+    'open-autonomous-operations',
+    'open-integrations',
+    'open-collaboration',
+    'open-command-center',
+    'dispatch-ai-nudges',
+    'enter-deep-work',
+    'enter-rapid-triage',
+    'enter-executive-monitoring',
+    'restore-last-workflow',
+    'create-handoff',
+    'mention-operator',
+    'open-team-queue',
+    'explain-permission',
+    'open-approval-chain',
+    'open-playbooks',
+    'show-similar-resolution',
+    'open-knowledge-graph',
+    'validate-integration',
+    'rotate-integration-credential',
+    'reset-integration-circuit',
+]);
+
 export const getRoleAwareCommands = (role?: UserRole) => {
   if (!role) return [];
-  return ALL_COMMANDS.filter((command) => command.roles.includes(role));
+  return ALL_COMMANDS.filter((command) => command.roles.includes(role) && !HIDDEN_PROTOTYPE_COMMANDS.has(command.id));
 };
 
 export const filterCommands = (commands: CommandItem[], query: string) => {

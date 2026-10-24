@@ -1,4 +1,4 @@
-export type PlanTier = 'free' | 'premium' | 'enterprise';
+export type PlanTier = 'caath_practice_os';
 
 export interface TenantSubscription {
   tenantId: string;

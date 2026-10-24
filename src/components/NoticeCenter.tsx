@@ -164,7 +164,7 @@ export const NoticeCenter: React.FC = () => {
   };
 
   return (
-    <div className="p-8 space-y-6 h-full bg-matte-black overflow-y-auto">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 sm:p-6 lg:p-8">
       {error && <p role="alert" className="p-3 border border-red-500 text-red-300">{error}</p>}
       <div className="flex items-center justify-between">
         <div>

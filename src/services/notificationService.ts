@@ -19,6 +19,7 @@ export type NotificationRow = {
   message: string;
   status: NotificationStatus;
   priority?: NotificationPriority | null;
+  action_url?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -32,8 +33,11 @@ export type NotificationInput = {
   title: string;
   message: string;
   priority?: NotificationPriority;
+  actionUrl?: string;
   user?: User;
 };
+
+const pendingNotificationCreates = new Map<string, Promise<{ id: string } | null>>();
 
 export const createNotification = async ({
   firmId,
@@ -42,8 +46,50 @@ export const createNotification = async ({
   title,
   message,
   priority,
+  actionUrl,
   user,
 }: NotificationInput) => {
+  const idempotencyKey = JSON.stringify([
+    firmId || null,
+    recipientUserId || null,
+    audienceRole || null,
+    title,
+    message,
+    actionUrl || null,
+  ]);
+  const pendingCreate = pendingNotificationCreates.get(idempotencyKey);
+  if (pendingCreate) return pendingCreate;
+
+  const createOperation = (async (): Promise<{ id: string } | null> => {
+  // Runtime producers can be retried or mounted more than once. Reuse an
+  // equivalent recent alert so a retry does not flood the same recipient.
+  // The in-flight map above also closes the race where two callers perform
+  // the duplicate lookup before either insert has completed.
+  const recentCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  let duplicateQuery = supabase
+    .from('notifications')
+    .select('id')
+    .eq('title', title)
+    .eq('message', message)
+    .neq('status', 'ARCHIVED')
+    .gte('created_at', recentCutoff)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  duplicateQuery = firmId
+    ? duplicateQuery.eq('firm_id', firmId)
+    : duplicateQuery.is('firm_id', null);
+  duplicateQuery = recipientUserId
+    ? duplicateQuery.eq('recipient_user_id', recipientUserId)
+    : duplicateQuery.is('recipient_user_id', null);
+  duplicateQuery = audienceRole
+    ? duplicateQuery.eq('audience_role', audienceRole)
+    : duplicateQuery.is('audience_role', null);
+
+  const { data: existingRows, error: duplicateError } = await duplicateQuery;
+  if (duplicateError) throw duplicateError;
+  if (existingRows?.[0]?.id) return existingRows[0];
+
   const { data, error } = await supabase
     .from('notifications')
     .insert([{
@@ -54,6 +100,7 @@ export const createNotification = async ({
       message,
       status: 'UNREAD',
       priority: priority || 'MEDIUM',
+      action_url: actionUrl || null,
       created_by: user?.id || null,
       updated_by: user?.id || null,
     }])
@@ -64,15 +111,29 @@ export const createNotification = async ({
   if (data?.id) {
     const tenantId = firmId || 'global';
     const correlationId = `corr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    await runtimeEventService.emit(
-      'runtime.notification.persisted',
-      { notificationId: data.id, audienceRole: audienceRole || null, recipientUserId: recipientUserId || null, priority: priority || 'MEDIUM' },
-      tenantId,
-      correlationId,
-    );
+    try {
+      await runtimeEventService.emit(
+        'runtime.notification.persisted',
+        { notificationId: data.id, audienceRole: audienceRole || null, recipientUserId: recipientUserId || null, priority: priority || 'MEDIUM' },
+        tenantId,
+        correlationId,
+      );
+    } catch (runtimeEventError) {
+      // The notification is already durable at this point. Observability must not
+      // turn a successful user action into a false failure or invite duplicates.
+      console.warn('Notification persisted but runtime telemetry failed:', runtimeEventError);
+    }
     runtimeObservabilityService.metric('runtime.notifications.persisted', 1, { priority: priority || 'MEDIUM' }, tenantId);
   }
   return data;
+  })();
+
+  pendingNotificationCreates.set(idempotencyKey, createOperation);
+  try {
+    return await createOperation;
+  } finally {
+    pendingNotificationCreates.delete(idempotencyKey);
+  }
 };
 
 export const markAsUnread = async (notificationId: string, userId: string) => {
@@ -150,12 +211,15 @@ export const markAllAsRead = async (userId: string, firmId?: string) => {
 };
 
 export const archiveNotification = async (notificationId: string) => {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('notifications')
     .update({ status: 'ARCHIVED' })
-    .eq('id', notificationId);
+    .eq('id', notificationId)
+    .select('id')
+    .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Notification could not be archived or is outside your permitted workspace.');
 };
 
 export const getMyNotifications = async (userId: string, firmId?: string) => {
@@ -180,7 +244,8 @@ export const getUnreadCount = async (userId: string, firmId?: string, role?: str
     .eq('status', 'UNREAD');
 
   if (role) {
-    query = query.or(`recipient_user_id.eq.${userId},audience_role.eq.${role}`);
+    const roleFilter = role === 'SuperAdmin' ? 'audience_role.in.(SuperAdmin,Admin)' : `audience_role.eq.${role}`;
+    query = query.or(`recipient_user_id.eq.${userId},${roleFilter}`);
   } else {
     query = query.eq('recipient_user_id', userId);
   }
@@ -201,7 +266,8 @@ export const getMyAndRoleNotifications = async (userId: string, role?: string, f
     .neq('status', 'ARCHIVED');
 
   if (role) {
-    query = query.or(`recipient_user_id.eq.${userId},audience_role.eq.${role}`);
+    const roleFilter = role === 'SuperAdmin' ? 'audience_role.in.(SuperAdmin,Admin)' : `audience_role.eq.${role}`;
+    query = query.or(`recipient_user_id.eq.${userId},${roleFilter}`);
   } else {
     query = query.eq('recipient_user_id', userId);
   }

@@ -102,7 +102,9 @@ export const publishEnterpriseEvent = async (event: EnterpriseEvent) => {
     details,
   }]);
 
-  if (error) throw error;
+  if (error) {
+    console.warn('[AUTH] Optional event bus module unavailable: enterprise_activities', error);
+  }
 
   await recordOperationalTelemetry({
     firmId: event.firmId,
@@ -152,6 +154,9 @@ export const getEnterpriseEventHistory = async (firmId: string, limit = 100) => 
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  if (error) throw error;
+  if (error) {
+    console.warn('[AUTH] Optional event bus module unavailable: enterprise_activities', error);
+    return [];
+  }
   return data || [];
 };

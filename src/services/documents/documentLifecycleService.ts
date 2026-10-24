@@ -6,6 +6,7 @@
 import { supabase } from '../../lib/supabase';
 import { getDocument } from './documentCoreService';
 import { writeDocumentAudit } from './documentAuditService';
+import { documentObjectPath } from './documentStorageService';
 
 export const archiveDocument = async (documentId: string, user: { id: string; name: string; role: string }, firmId: string, clientId?: string) => {
   const { error } = await supabase
@@ -77,8 +78,9 @@ export const permanentDeleteDocument = async (documentId: string) => {
   if (!doc) throw new Error('Document not found');
 
   // Delete from storage
-  const filePath = doc.file_path.split('/').slice(-3).join('/');
-  await supabase.storage.from('documents').remove([filePath]);
+  const filePath = documentObjectPath(doc.file_path);
+  const { error: storageError } = await supabase.storage.from('documents').remove([filePath]);
+  if (storageError) throw storageError;
 
   // Delete record
   const { error } = await supabase

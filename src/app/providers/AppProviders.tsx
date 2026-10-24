@@ -5,6 +5,7 @@ import { ToastProvider } from '../../components/Toast';
 import { UIProvider, useUI } from '../../context/UIContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { syncAuthState } from '../bootstrap/syncAuthState';
+import { reportPilotError } from '../../services/supportEscalationTicketingService';
 
 const UIStyleSync: React.FC = () => {
   const { uiStyle } = useUI();
@@ -26,6 +27,26 @@ const EnterpriseStateSync: React.FC<{ children: React.ReactNode }> = ({ children
   return <>{children}</>;
 };
 
+const AuthenticatedErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+
+  return (
+    <ErrorBoundary
+      onReportError={user?.firmId ? async (error) => {
+        await reportPilotError({
+          user,
+          title: 'CAATH application error',
+          errorMessage: `${error.name}: ${error.message}`.slice(0, 1000),
+          workflowArea: window.location.pathname,
+          reproductionSteps: 'Reported from the in-app recovery screen.',
+        });
+      } : undefined}
+    >
+      {children}
+    </ErrorBoundary>
+  );
+};
+
 export const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <StrictMode>
@@ -35,7 +56,9 @@ export const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children
             <UIProvider>
               <UIStyleSync />
               <EnterpriseStateSync>
-                <ToastProvider>{children}</ToastProvider>
+                <ToastProvider>
+                  <AuthenticatedErrorBoundary>{children}</AuthenticatedErrorBoundary>
+                </ToastProvider>
               </EnterpriseStateSync>
             </UIProvider>
           </AuthProvider>

@@ -13,6 +13,7 @@ import { registerOrchestrationChain } from '../../../services/enterpriseOrchestr
 import { taskRepository, UserRoleRow } from '../repositories/TaskRepository';
 import { unwrapData, unwrapOptional } from '../../../infrastructure/repositories/baseRepository';
 import { createRuntimeNotification } from '../../../services/notificationRuntimeService';
+import { createClient, ClientType, ServiceType } from '../../clients/services/clientDomainService';
 
 export type TaskPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
 export type TaskStatus =
@@ -32,6 +33,11 @@ export type TaskCategory = 'GST' | 'Income Tax' | 'Audit' | 'ROC' | 'MCA' | 'TDS
 export type TaskInput = {
   firmId: string;
   clientId?: string;
+  newClient?: {
+    name: string;
+    type: ClientType;
+    pan: string;
+  };
   assignedTo?: string;
   title: string;
   description?: string;
@@ -117,7 +123,7 @@ const assertCanDelegateToRole = (actorRole: UserRole, assigneeRole: UserRole) =>
   if (actorRole !== 'GodAdmin') throw new Error('Delegation is not allowed for this role.');
 };
 
-export const createTask = async ({ firmId, clientId, assignedTo, title, description, priority = 'Medium', status, category, portalType, portalWorkflowType, deadline, user }: TaskInput) => {
+export const createTask = async ({ firmId, clientId, newClient, assignedTo, title, description, priority = 'Medium', status, category, portalType, portalWorkflowType, deadline, user }: TaskInput) => {
   if (!user.firmId) throw new Error('A firm workspace is required to create tasks.');
   assertFirmScope(user, firmId);
 
@@ -127,10 +133,27 @@ export const createTask = async ({ firmId, clientId, assignedTo, title, descript
     assertCanDelegateToRole(user.role, assignee.role);
   }
 
+  let resolvedClientId = clientId;
+  if (!resolvedClientId && newClient) {
+    const createdClient = await createClient({
+      firmId,
+      name: newClient.name,
+      type: newClient.type,
+      pan: newClient.pan,
+      services: category === 'ROC' || category === 'MCA' ? ['ROC Filing' as ServiceType] : [],
+      user,
+    });
+    resolvedClientId = (createdClient as { id: string }).id;
+  }
+
+  if (!resolvedClientId) {
+    throw new Error('Select an existing client or add the new client details before creating a task.');
+  }
+
   const effectiveStatus: TaskStatus = status || (assignedTo ? 'Assigned' : 'Created');
   const data = await unwrapData(taskRepository.createTask({
     firm_id: firmId,
-    client_id: clientId,
+    client_id: resolvedClientId,
     assigned_to: assignedTo,
     title,
     description,

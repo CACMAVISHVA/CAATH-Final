@@ -32,6 +32,7 @@ import {
 import { cn } from '../../lib/utils';
 import { CommandAction } from '../../services/commandPaletteService';
 import { QuickAccessPin } from '../../services/workspacePreferencesService';
+import { getLiveWorkspaceSnapshot, LiveWorkspaceSnapshot } from '../../services/liveWorkspaceDataService';
 import { User } from '../../types';
 import { useOperationalActionExecutor } from '../action-system';
 import { loadVelocityMemory, rememberVelocityAction, saveVelocityMemory } from '../operational-velocity';
@@ -93,7 +94,8 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
   const [session, setSession] = useState<WorkspaceSessionState>(() => loadWorkspaceSession(user.id, user.role));
   const [optimisticStatus, setOptimisticStatus] = useState('Live sync active');
   const [selectedQueueIndex, setSelectedQueueIndex] = useState(0);
-  const [operationalTasks, setOperationalTasks] = useState(initialLiveTasks);
+  const [operationalTasks, setOperationalTasks] = useState(() => user.role === 'SuperAdmin' ? [] : initialLiveTasks);
+  const [liveSnapshot, setLiveSnapshot] = useState<LiveWorkspaceSnapshot | null>(null);
   const [velocityMemory, setVelocityMemory] = useState(() => loadVelocityMemory(user.id));
   const { executeAction, lastResult, statusByAction, undoLastAction } = useOperationalActionExecutor(user.id, user.role);
 
@@ -104,6 +106,21 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
   useEffect(() => {
     saveVelocityMemory(user.id, velocityMemory);
   }, [user.id, velocityMemory]);
+
+  useEffect(() => {
+    if (user.role !== 'SuperAdmin' || !user.firmId) return;
+    let active = true;
+    getLiveWorkspaceSnapshot(user.firmId)
+      .then((snapshot) => {
+        if (!active) return;
+        setLiveSnapshot(snapshot);
+        setOperationalTasks(snapshot.tasks);
+      })
+      .catch(() => {
+        if (active) setOptimisticStatus('Live data reconnecting');
+      });
+    return () => { active = false; };
+  }, [user.firmId, user.role]);
 
   useEffect(() => {
     const handleWorkspaceHotkey = (event: Event) => {
@@ -214,14 +231,209 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
     </div>
   );
 
+  if (user.role === 'SuperAdmin') {
+    const selectedTask = operationalTasks[selectedQueueIndex] ?? operationalTasks[0];
+    const urgentTaskCount = liveSnapshot?.summary.urgentTasks ?? operationalTasks.filter((task) => task.risk === 'High').length;
+    const liveTimelineEvents = operationalTasks.slice(0, 4).map((task, index) => ({
+      id: `live-${task.id}`,
+      title: index === 0 ? 'Priority work ready' : 'Open work item',
+      detail: `${task.title} · ${task.client} · ${task.status}`,
+      time: task.sla,
+      tone: task.risk === 'High' ? 'red' as const : task.risk === 'Medium' ? 'gold' as const : 'green' as const,
+    }));
+
+    return (
+      <div className="h-full overflow-y-auto bg-matte-black text-white">
+        <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-matte-black/95 px-6 py-5 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-[1480px] flex-wrap items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold text-white">Practice command centre</h1>
+                <ActivityIndicator label={optimisticStatus} tone="live" />
+              </div>
+              <p className="mt-1 text-sm text-slate-500">Your priorities, approvals and team activity in one focused view.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onOpenSearch}
+                className="flex items-center gap-2 rounded-md bg-white/[0.035] px-3.5 py-2 text-sm text-slate-400 ring-1 ring-white/[0.06] transition-colors hover:bg-white/[0.07] hover:text-white"
+              >
+                <Command className="h-4 w-4 text-gold" />
+                Search
+                <kbd className="ml-1 rounded bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-slate-500">Ctrl K</kbd>
+              </button>
+              <EOXButton variant="primary" onClick={() => onNavigate('tasks')}>
+                New task
+              </EOXButton>
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-[1480px] space-y-5 p-6">
+          {lastResult ? (
+            <div className={cn(
+              'flex items-center justify-between gap-3 rounded-md px-4 py-3 text-sm ring-1',
+              lastResult.status === 'success' && 'bg-emerald-500/10 text-emerald-200 ring-emerald-400/20',
+              lastResult.status === 'failure' && 'bg-red-500/10 text-red-200 ring-red-400/20',
+              lastResult.status === 'permission-denied' && 'bg-amber-500/10 text-amber-200 ring-amber-400/20',
+              lastResult.status === 'disabled' && 'bg-white/[0.035] text-slate-400 ring-white/[0.06]',
+            )}>
+              <span>{lastResult.message}</span>
+              {lastResult.undo ? (
+                <button type="button" onClick={undoLastAction} className="font-semibold text-white hover:text-gold">Undo</button>
+              ) : null}
+            </div>
+          ) : null}
+
+          <section aria-label="Today's practice summary" className="grid gap-3 md:grid-cols-3">
+            <EOXMetric label="Work requiring attention" value={liveSnapshot ? String(liveSnapshot.summary.openTasks) : '—'} detail={`${urgentTaskCount} urgent today`} tone="blue" />
+            <EOXMetric label="SLA risks" value={liveSnapshot ? String(liveSnapshot.summary.slaRisks) : '—'} detail="Owner action required" tone="red" />
+            <EOXMetric label="Pending approvals" value={liveSnapshot ? String(liveSnapshot.summary.pendingApprovals) : '—'} detail="Awaiting review" tone="gold" />
+          </section>
+
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="space-y-5">
+              <section className="rounded-lg bg-matte-black-light/80 p-5 ring-1 ring-white/[0.07]">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                      <h2 className="font-semibold text-white">Priority work queue</h2>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">Select an item to review and act.</p>
+                  </div>
+                  <VelocityBadge label="Urgent" value={String(urgentTaskCount)} tone="risk" />
+                </div>
+                {operationalTasks.length > 0 ? renderTaskRows('standard') : (
+                  <div className="rounded-md bg-white/[0.025] p-6 text-center text-sm text-slate-500 ring-1 ring-white/[0.05]">
+                    {liveSnapshot ? 'No open tasks require attention.' : 'Loading live work queue…'}
+                  </div>
+                )}
+              </section>
+
+              {selectedTask ? (
+                <section className="rounded-lg bg-matte-black-light/80 p-5 ring-1 ring-white/[0.07]">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gold">Selected work</p>
+                      <h2 className="mt-2 text-lg font-semibold text-white">{selectedTask.title}</h2>
+                      <p className="mt-1 text-sm text-slate-500">{selectedTask.client} · {selectedTask.owner} · {selectedTask.status}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <VelocityBadge label="SLA" value={selectedTask.sla} tone={selectedTask.risk === 'High' ? 'risk' : 'fast'} />
+                      <VelocityBadge label="Risk" value={selectedTask.risk} tone={selectedTask.risk === 'High' ? 'risk' : 'fast'} />
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-md bg-white/[0.025] p-4 ring-1 ring-white/[0.05]">
+                    <div className="flex items-start gap-3">
+                      <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+                      <div>
+                        <p className="text-sm font-semibold text-white">Recommended next step</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-400">Review the supporting records, confirm ownership and resolve the exception before its SLA expires.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <EOXButton variant="primary" onClick={() => onNavigate('tasks')}>Assign owner</EOXButton>
+                    <EOXButton onClick={() => onNavigate('tasks')}>Review status</EOXButton>
+                    <EOXButton onClick={() => onNavigate('gst')}>Open GST details</EOXButton>
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="rounded-lg bg-matte-black-light/80 p-5 ring-1 ring-white/[0.07]">
+                <h2 className="font-semibold text-white">Recent practice activity</h2>
+                <p className="mb-4 mt-1 text-xs text-slate-500">Current work signals across your practice.</p>
+                {liveTimelineEvents.length > 0 ? (
+                  <TimelineList events={liveTimelineEvents} />
+                ) : (
+                  <div className="rounded-md bg-white/[0.025] p-5 text-sm text-slate-500 ring-1 ring-white/[0.05]">
+                    {liveSnapshot ? 'No recent open-work activity requires attention.' : 'Loading live activity…'}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <aside className="space-y-4">
+              <section className="rounded-lg bg-matte-black-light/80 p-5 ring-1 ring-white/[0.07]">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-gold" />
+                  <h2 className="font-semibold text-white">Today’s actions</h2>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">Common actions kept within one click.</p>
+                <div className="mt-4 space-y-2">
+                  <button type="button" onClick={() => onNavigate('approvals')} className="flex w-full items-center justify-between rounded-md bg-gold px-3.5 py-3 text-left text-sm font-semibold text-matte-black transition-colors hover:bg-gold-light">
+                    Approve selected item
+                    <CheckCircle2 className="h-4 w-4" />
+                  </button>
+                  <button type="button" onClick={() => rapidAction('open-notification-center', 'Inbox')} className="flex w-full items-center justify-between rounded-md bg-white/[0.035] px-3.5 py-3 text-left text-sm font-semibold text-slate-300 ring-1 ring-white/[0.05] hover:bg-white/[0.07]">
+                    Review alerts
+                    <Bell className="h-4 w-4 text-red-300" />
+                  </button>
+                  <button type="button" onClick={() => onNavigate('approvals')} className="flex w-full items-center justify-between rounded-md bg-white/[0.035] px-3.5 py-3 text-left text-sm font-semibold text-slate-300 ring-1 ring-white/[0.05] hover:bg-white/[0.07]">
+                    Open all approvals
+                    <Workflow className="h-4 w-4 text-gold" />
+                  </button>
+                </div>
+              </section>
+
+              <section className="rounded-lg bg-matte-black-light/80 p-5 ring-1 ring-white/[0.07]">
+                <h2 className="font-semibold text-white">Practice pulse</h2>
+                <div className="mt-4 space-y-3">
+                  {[
+                    { label: 'Active team', value: liveSnapshot ? String(liveSnapshot.summary.activeTeam) : '—', tone: 'text-emerald-300' },
+                    { label: 'Urgent work', value: liveSnapshot ? String(liveSnapshot.summary.urgentTasks) : '—', tone: 'text-gold' },
+                    { label: 'Governance trust', value: liveSnapshot ? String(liveSnapshot.summary.governanceTrust) : '—', tone: 'text-emerald-300' },
+                  ].map((item) => (
+                    <div key={item.label} className="flex items-center justify-between border-b border-white/[0.05] pb-3 last:border-0 last:pb-0">
+                      <span className="text-sm text-slate-400">{item.label}</span>
+                      <span className={cn('text-lg font-semibold', item.tone)}>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-lg bg-matte-black-light/80 p-5 ring-1 ring-white/[0.07]">
+                <h2 className="font-semibold text-white">Quick navigation</h2>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Tasks', target: 'tasks' },
+                    { label: 'Clients', target: 'clients' },
+                    { label: 'Documents', target: 'documents' },
+                    { label: 'GST', target: 'gst' },
+                    { label: 'Notices', target: 'notices' },
+                    { label: 'QA review', target: 'qa' },
+                  ].map((item) => (
+                    <button key={item.target} type="button" onClick={() => onNavigate(item.target)} className="rounded-md bg-white/[0.035] px-3 py-2.5 text-left text-xs font-semibold text-slate-400 ring-1 ring-white/[0.05] hover:bg-white/[0.07] hover:text-white">
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-dashed border-white/[0.08] p-4 text-xs leading-5 text-slate-500">
+                <span className="font-semibold text-slate-300">Workspace context:</span> {session.openTabs[selectedQueueIndex % Math.max(session.openTabs.length, 1)] ?? 'Live practice overview'}
+              </section>
+            </aside>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className={cn('flex h-full overflow-hidden bg-matte-black text-white', session.panelStates.workspace?.detached && 'm-3 h-[calc(100%-1.5rem)] rounded-md shadow-2xl ring-1 ring-gold/20')}>
-      <DockRail
-        items={dockItems.map((item) => ({ ...item, active: session.activePanel === item.id }))}
-        onSelect={(id) => setSessionValue('activePanel', id as WorkspacePanelId)}
-      />
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="h-36 bg-matte-black/82 px-5 py-4 shadow-sm ring-1 ring-white/[0.04] backdrop-blur">
+      <div className="hidden md:block">
+        <DockRail
+          items={dockItems.map((item) => ({ ...item, active: session.activePanel === item.id }))}
+          onSelect={(id) => setSessionValue('activePanel', id as WorkspacePanelId)}
+        />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 bg-matte-black/82 px-3 py-3 shadow-sm ring-1 ring-white/[0.04] backdrop-blur sm:px-5 sm:py-4">
           <div className="flex h-full flex-col justify-between gap-3">
             <div className="flex min-w-0 flex-wrap items-start gap-4">
               <div className="min-w-[220px] flex-1">
@@ -252,10 +464,10 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex w-full items-center gap-2 overflow-x-auto lg:w-auto">
                 <button
                   onClick={onOpenSearch}
-                  className="flex min-w-[210px] items-center gap-2 rounded-md bg-white/[0.04] px-3 py-2.5 text-left text-sm text-slate-400 ring-1 ring-white/[0.055] hover:bg-white/[0.07] hover:text-white"
+                  className="flex min-w-[180px] items-center gap-2 rounded-md bg-white/[0.04] px-3 py-2.5 text-left text-sm text-slate-400 ring-1 ring-white/[0.055] hover:bg-white/[0.07] hover:text-white sm:min-w-[210px]"
                 >
                   <Command className="h-4 w-4 text-gold" />
                   <span className="flex-1 truncate">Command palette</span>
@@ -296,7 +508,7 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
                 </button>
               </div>
 
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex w-full items-center gap-2 overflow-x-auto sm:w-auto sm:shrink-0">
                 <button
                   onClick={() => setSelectedQueueIndex((prev) => Math.max(prev - 1, 0))}
                   className="rounded-md bg-white/[0.035] px-3 py-2 text-xs font-semibold text-slate-400 ring-1 ring-white/[0.045] hover:bg-white/[0.065] hover:text-white"
@@ -348,7 +560,7 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
           </div>
         </div>
 
-        <div className={cn('grid h-[calc(100%-9rem)] gap-5 overflow-y-auto p-5', layoutColumns)}>
+        <div className={cn('grid min-h-0 flex-1 gap-4 overflow-y-auto p-3 sm:gap-5 sm:p-5', layoutColumns)}>
           <div className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-3">
               <EOXMetric label="Live Tasks" value="42" detail="8 moving now" tone="blue" />
@@ -408,11 +620,11 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
                 <div className="rounded-md bg-white/[0.035] p-4 ring-1 ring-white/[0.045]">
                   <div className="mb-2 flex items-center gap-2">
                     <BrainCircuit className="h-4 w-4 text-gold" />
-                    <p className="text-sm font-semibold text-white">Docked intelligence</p>
+                    <p className="text-sm font-semibold text-white">Suggested next step</p>
                   </div>
-                  <p className="text-xs text-slate-500">Inline suggestion: request vendor confirmation before release. Confidence visible, action remains operator-owned.</p>
+                  <p className="text-xs text-slate-500">Review the task details and request vendor confirmation before release.</p>
                   <div className="mt-3 flex gap-2">
-                    <EOXButton onClick={() => rapidAction('open-ai-queue', 'AI queue')}>Open queue</EOXButton>
+                    <EOXButton onClick={() => rapidAction('open-tasks', 'Task board')}>Open tasks</EOXButton>
                     <EOXButton onClick={() => onNavigate('gst')}>GST context</EOXButton>
                   </div>
                 </div>
@@ -423,17 +635,17 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
               <TimelineList events={timelineEvents} />
             </WorkspacePanel>
 
-            <WorkspacePanel title="AI Workflow Assist" meta="Next actions, continuation shortcuts, SLA-aware prompts" live density={session.density} {...panelInteraction('ai-workflow-assist')}>
+            <WorkspacePanel title="Quick Actions" meta="Common task and compliance shortcuts" density={session.density} {...panelInteraction('ai-workflow-assist')}>
               <div className="grid gap-2 sm:grid-cols-2">
                 {[
                   { label: 'Continue GST variance', action: 'open-gst' as CommandAction },
                   { label: 'Assign next SLA risk', action: 'assign-work' as CommandAction },
                   { label: 'Approve clean batch', action: 'quick-approve' as CommandAction },
-                  { label: 'Open AI queue', action: 'open-ai-queue' as CommandAction },
+                  { label: 'Open task board', action: 'open-tasks' as CommandAction },
                 ].map((item) => (
                   <button key={item.label} onClick={() => rapidAction(item.action, item.label)} className="rounded-md bg-white/[0.035] p-3 text-left ring-1 ring-white/[0.045] hover:bg-white/[0.065]">
                     <p className="text-xs font-semibold text-white">{item.label}</p>
-                    <p className="mt-1 text-[10px] text-slate-500">Operator-owned recommendation</p>
+                    <p className="mt-1 text-[10px] text-slate-500">Open the relevant workspace</p>
                   </button>
                 ))}
               </div>

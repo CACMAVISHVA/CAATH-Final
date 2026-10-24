@@ -1,11 +1,12 @@
 import { supabase } from '../lib/supabase';
 import { User, UserRole } from '../types';
+import { firstValidationError, validateEmail, validateRequiredName, validateUuid } from '../lib/fieldValidation';
 
 export type FirmProvisioningInput = {
   firmName: string;
   adminName: string;
   adminEmail: string;
-  plan: 'Trial' | 'Starter' | 'Professional' | 'Enterprise';
+  plan: 'Trial' | 'CAATH Practice OS';
 };
 
 export type FirmProvisioningResult = {
@@ -27,8 +28,12 @@ export const createFirmProvisioningPackage = async (
   user: User,
 ): Promise<FirmProvisioningResult> => {
   if (user.role !== 'GodAdmin') throw new Error('Only GodAdmin can provision firms.');
-  if (!input.firmName.trim()) throw new Error('Firm name is required.');
-  if (!input.adminEmail.trim()) throw new Error('Admin email is required.');
+  const validationError = firstValidationError(
+    validateRequiredName(input.firmName, 'Firm name'),
+    validateRequiredName(input.adminName, 'Admin name'),
+    validateEmail(input.adminEmail),
+  );
+  if (validationError) throw new Error(validationError);
 
   const { data: firm, error: firmError } = await supabase
     .from('firms')
@@ -46,7 +51,7 @@ export const createFirmProvisioningPackage = async (
       firm_id: firm.id,
       plan: input.plan,
       status: input.plan === 'Trial' ? 'Trial' : 'Pending',
-      amount: input.plan === 'Trial' ? 0 : input.plan === 'Starter' ? 1999 : input.plan === 'Professional' ? 4999 : 9999,
+      amount: input.plan === 'Trial' ? 0 : 1499,
       billing_cycle: 'Monthly',
       trial_ends_at: trialEndsAt,
       starts_at: new Date().toISOString(),
@@ -89,9 +94,13 @@ export const createFirmProvisioningPackage = async (
 
 export const activateProvisionedUser = async (input: RoleActivationInput, user: User) => {
   if (user.role !== 'GodAdmin' && user.role !== 'SuperAdmin') throw new Error('Only platform or firm owners can activate users.');
-  if (!input.firmId) throw new Error('Firm ID is required.');
-  if (!input.authId) throw new Error('Supabase Auth user ID is required.');
-  if (!input.email.trim()) throw new Error('Email is required.');
+  const validationError = firstValidationError(
+    validateUuid(input.firmId, 'firm ID'),
+    validateUuid(input.authId, 'authentication user ID'),
+    validateRequiredName(input.name, 'User name'),
+    validateEmail(input.email),
+  );
+  if (validationError) throw new Error(validationError);
 
   const { data, error } = await supabase
     .from('users')

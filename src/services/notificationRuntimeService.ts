@@ -68,23 +68,38 @@ export const markAllRuntimeNotificationsRead = async (user: User) => {
   await markAllAsRead(user.id, user.firmId);
 };
 
+const optionalRows = <T>(
+  result: PromiseSettledResult<{ data: T[] | null; error: unknown }>,
+  label: string,
+): T[] => {
+  if (result.status === 'rejected') {
+    console.warn(`[AUTH] Optional notification runtime module unavailable: ${label}`, result.reason);
+    return [];
+  }
+  if (result.value.error) {
+    console.warn(`[AUTH] Optional notification runtime module unavailable: ${label}`, result.value.error);
+    return [];
+  }
+  return result.value.data || [];
+};
+
 export const generateRuntimeNotificationsFromCurrentState = async (user: User): Promise<number> => {
   if (!user.firmId) throw new Error('A firm workspace is required.');
 
-  const [tasks, compliance, documents] = await Promise.all([
+  const [tasksResult, complianceResult, documentsResult] = await Promise.allSettled([
     supabase.from('tasks').select('id, title, status, assigned_to, deadline').eq('firm_id', user.firmId),
     supabase.from('compliance_tasks').select('id, name, filing_status, assigned_to, due_date').eq('firm_id', user.firmId),
     supabase.from('document_vault').select('id, name, uploaded_by, created_at').eq('firm_id', user.firmId).order('created_at', { ascending: false }).limit(10),
-  ]);
+  ] as const);
 
-  if (tasks.error) throw tasks.error;
-  if (compliance.error) throw compliance.error;
-  if (documents.error) throw documents.error;
+  const tasks = optionalRows(tasksResult, 'tasks');
+  const compliance = optionalRows(complianceResult, 'compliance_tasks');
+  const documents = optionalRows(documentsResult, 'document_vault');
 
   let created = 0;
   const now = new Date();
 
-  for (const task of tasks.data || []) {
+  for (const task of tasks) {
     if (task.assigned_to && task.status === 'Assigned') {
       await createRuntimeNotification({
         firmId: user.firmId,
@@ -111,7 +126,7 @@ export const generateRuntimeNotificationsFromCurrentState = async (user: User): 
     }
   }
 
-  for (const item of compliance.data || []) {
+  for (const item of compliance) {
     if (!item.assigned_to || ['Filed', 'Closed'].includes(item.filing_status)) continue;
     const due = new Date(item.due_date);
     if (due < now || due.getTime() - now.getTime() <= 7 * 24 * 60 * 60 * 1000) {
@@ -128,7 +143,7 @@ export const generateRuntimeNotificationsFromCurrentState = async (user: User): 
     }
   }
 
-  for (const doc of documents.data || []) {
+  for (const doc of documents) {
     await createRuntimeNotification({
       firmId: user.firmId,
       audienceRole: 'Admin',

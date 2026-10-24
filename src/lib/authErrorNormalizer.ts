@@ -49,7 +49,8 @@ export const normalizeAuthError = (error: any): SafeAuthError => {
 
   // Extract error message
   const errorMessage = typeof error === 'string' ? error : error.message || String(error);
-  const errorCode = error.status || error.code || '';
+  const errorCode = error.status || '';
+  const providerCode = String(error.code || '').toLowerCase();
   const normalizedMessage = errorMessage.toLowerCase();
 
   // Map known errors to safe messages
@@ -95,10 +96,50 @@ export const normalizeAuthError = (error: any): SafeAuthError => {
     };
   }
 
-  if (normalizedMessage.includes('weak password') || normalizedMessage.includes('password should') || normalizedMessage.includes('password must')) {
+  if (
+    providerCode === 'weak_password'
+    || normalizedMessage.includes('weak password')
+    || normalizedMessage.includes('known to be weak')
+    || normalizedMessage.includes('easy to guess')
+    || normalizedMessage.includes('password should')
+    || normalizedMessage.includes('password must')
+  ) {
     return {
       code: 'WEAK_PASSWORD',
-      userMessage: 'Password does not meet security requirements. Please use a stronger password.',
+      userMessage: 'This password is too common or does not meet security requirements. Use a unique 12+ character password with uppercase, lowercase, a number, and a symbol.',
+      isRetryable: true,
+    };
+  }
+
+  if (errorCode === 429 || providerCode.includes('rate_limit') || normalizedMessage.includes('rate limit') || normalizedMessage.includes('too many requests')) {
+    return {
+      code: 'SERVICE_ERROR',
+      userMessage: 'Too many account attempts were made. Please wait a few minutes, then try once with a strong unique password.',
+      isRetryable: true,
+    };
+  }
+
+  if (providerCode === 'captcha_failed' || normalizedMessage.includes('captcha')) {
+    return {
+      code: 'SERVICE_ERROR',
+      userMessage: 'The security check could not be completed. Refresh the page and try again.',
+      isRetryable: true,
+    };
+  }
+
+  if (providerCode === 'signup_disabled' || normalizedMessage.includes('signups not allowed') || normalizedMessage.includes('signup is disabled')) {
+    return {
+      code: 'SERVICE_ERROR',
+      userMessage: 'New workspace registration is temporarily unavailable. Please contact CAATH support.',
+      isRetryable: false,
+      isDeveloperError: true,
+    };
+  }
+
+  if (providerCode === 'over_email_send_rate_limit' || normalizedMessage.includes('email rate limit')) {
+    return {
+      code: 'SERVICE_ERROR',
+      userMessage: 'The verification-email limit was reached. Please wait and try again, or contact CAATH support.',
       isRetryable: true,
     };
   }
@@ -107,6 +148,14 @@ export const normalizeAuthError = (error: any): SafeAuthError => {
     return {
       code: 'EMAIL_NOT_VERIFIED',
       userMessage: 'Email verification required. Please check your inbox and verify your email.',
+      isRetryable: true,
+    };
+  }
+
+  if (normalizedMessage.includes('sign_in_session_missing')) {
+    return {
+      code: 'EMAIL_NOT_VERIFIED',
+      userMessage: 'CAATH could not create a sign-in session. Please verify your email, then try again.',
       isRetryable: true,
     };
   }
@@ -149,7 +198,7 @@ export const normalizeAuthError = (error: any): SafeAuthError => {
     code: 'UNKNOWN_ERROR',
     userMessage: isDevelopment
       ? `Authentication error: ${errorMessage.substring(0, 100)}`
-      : 'An error occurred during authentication. Please try again.',
+      : 'CAATH could not complete the sign-in request. Please verify the details and try again. If it continues, contact support.',
     isRetryable: true,
     originalError: error instanceof Error ? error : new Error(String(error)),
   };

@@ -50,7 +50,7 @@ export const loadControlTowerSnapshot = async (): Promise<ControlTowerSnapshot> 
   const subs = subsRes.data || [];
   const activeFirms = firms.filter((f) => f.status === 'Active').length;
   const suspendedFirms = firms.filter((f) => f.status === 'Suspended').length;
-  const pendingSubscriptions = subs.filter((s) => s.status === 'Pending').length;
+  const pendingSubscriptions = subs.filter((s) => ['Pending', 'Pending Verification'].includes(s.status)).length;
   const activeRevenue = subs
     .filter((s) => s.status === 'Active')
     .reduce((sum, s) => sum + Number(s.amount || 0), 0);
@@ -117,7 +117,7 @@ export const loadPlatformConfigSnapshot = async (): Promise<PlatformConfigSnapsh
 
   const subs = subsRes.data || [];
   const activePlans = new Set(subs.filter((s) => s.status === 'Active').map((s) => s.plan)).size;
-  const pendingEntitlements = subs.filter((s) => s.status === 'Pending').length;
+  const pendingEntitlements = subs.filter((s) => ['Pending', 'Pending Verification'].includes(s.status)).length;
   const activeCount = subs.filter((s) => s.status === 'Active').length;
   const totalCount = subs.length || 1;
   const featureActivationRate = Math.round((activeCount / totalCount) * 100);

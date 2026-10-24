@@ -145,7 +145,7 @@ export const PayrollWorkspace: React.FC = () => {
   if (!user) return null;
 
   return (
-    <div className="p-8 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:p-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold gold-text-gradient">Payroll & Workforce</h2>

@@ -79,6 +79,52 @@ const severityByValue = (value: number, medium: number, high: number, critical: 
   return 'low';
 };
 
+const emptyRevenue = {
+  generatedAt: new Date().toISOString(),
+  kpis: {
+    revenueReceivedThisMonth: 0,
+    receivablesPending: 0,
+    overdueCollections: 0,
+    invoicesPendingGeneration: 0,
+    completedTasksAwaitingBilling: 0,
+    revenueRealizationRate: 0,
+    billingBottleneckCount: 0,
+    unresolvedNoticeCount: 0,
+    unresolvedNoticeRiskHigh: 0,
+  },
+  breakdown: { byService: [], byClient: [] },
+  workflowSignals: [],
+};
+
+const emptyDocumentSummary = {
+  unresolvedNotices: 0,
+  processingBacklog: 0,
+  extractionFailures: 0,
+  overdueDocumentWorkflows: 0,
+  highRiskComplianceDocuments: 0,
+};
+
+const optionalRows = <T>(
+  result: PromiseSettledResult<{ data: T[] | null; error: unknown }>,
+  label: string,
+): T[] => {
+  if (result.status === 'rejected') {
+    console.warn(`[AUTH] Optional predictive module unavailable: ${label}`, result.reason);
+    return [];
+  }
+  if (result.value.error) {
+    console.warn(`[AUTH] Optional predictive module unavailable: ${label}`, result.value.error);
+    return [];
+  }
+  return result.value.data || [];
+};
+
+const emptyTrend = (metric: TelemetryTrendSummary['metric']): TelemetryTrendSummary => ({
+  metric,
+  total: 0,
+  points: [],
+});
+
 export const getPredictiveOperationalSnapshot = async (firmId: string): Promise<PredictiveOperationalSnapshot> => {
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -91,15 +137,15 @@ export const getPredictiveOperationalSnapshot = async (firmId: string): Promise<
     payrollRes,
     reassignRes,
     clientsRes,
-    revenue,
-    documentSummary,
-    workflowThroughput,
-    billingCompletionRate,
-    escalationTrend,
-    reassignmentTrend,
-    approvalTrend,
-    payrollGovernanceTrend,
-  ] = await Promise.all([
+    revenueRes,
+    documentSummaryRes,
+    workflowThroughputRes,
+    billingCompletionRateRes,
+    escalationTrendRes,
+    reassignmentTrendRes,
+    approvalTrendRes,
+    payrollGovernanceTrendRes,
+  ] = await Promise.allSettled([
     supabase.from('tasks').select('id, status, assigned_to, client_id, deadline, updated_at').eq('firm_id', firmId),
     supabase.from('notices').select('id, client_id, status, deadline, created_at').eq('firm_id', firmId),
     supabase.from('approval_tasks').select('id, status, assigned_to, updated_at').eq('firm_id', firmId),
@@ -114,21 +160,26 @@ export const getPredictiveOperationalSnapshot = async (firmId: string): Promise<
     getTelemetryTrendSummary(firmId, 'reassignment_frequency', 30),
     getTelemetryTrendSummary(firmId, 'approval_throughput', 30),
     getTelemetryTrendSummary(firmId, 'payroll_governance', 30),
-  ]);
+  ] as const);
 
-  if (tasksRes.error) throw tasksRes.error;
-  if (noticesRes.error) throw noticesRes.error;
-  if (approvalsRes.error) throw approvalsRes.error;
-  if (payrollRes.error) throw payrollRes.error;
-  if (reassignRes.error) throw reassignRes.error;
-  if (clientsRes.error) throw clientsRes.error;
-
-  const tasks = tasksRes.data || [];
-  const notices = noticesRes.data || [];
-  const approvals = approvalsRes.data || [];
-  const payrollRuns = payrollRes.data || [];
-  const reassignments = reassignRes.data || [];
-  const clients = clientsRes.data || [];
+  const tasks = optionalRows(tasksRes, 'tasks');
+  const notices = optionalRows(noticesRes, 'notices');
+  const approvals = optionalRows(approvalsRes, 'approval_tasks');
+  const payrollRuns = optionalRows(payrollRes, 'payroll_runs');
+  const reassignments = optionalRows(reassignRes, 'task_reassignments');
+  const clients = optionalRows(clientsRes, 'clients');
+  const revenue = revenueRes.status === 'fulfilled'
+    ? revenueRes.value
+    : (console.warn('[AUTH] Optional predictive module unavailable: revenue intelligence', revenueRes.reason), emptyRevenue);
+  const documentSummary = documentSummaryRes.status === 'fulfilled'
+    ? documentSummaryRes.value
+    : (console.warn('[AUTH] Optional predictive module unavailable: document intelligence', documentSummaryRes.reason), emptyDocumentSummary);
+  const workflowThroughput = workflowThroughputRes.status === 'fulfilled' ? workflowThroughputRes.value : emptyTrend('workflow_transition');
+  const billingCompletionRate = billingCompletionRateRes.status === 'fulfilled' ? billingCompletionRateRes.value : emptyTrend('revenue_lifecycle');
+  const escalationTrend = escalationTrendRes.status === 'fulfilled' ? escalationTrendRes.value : emptyTrend('workflow_escalation');
+  const reassignmentTrend = reassignmentTrendRes.status === 'fulfilled' ? reassignmentTrendRes.value : emptyTrend('reassignment_frequency');
+  const approvalTrend = approvalTrendRes.status === 'fulfilled' ? approvalTrendRes.value : emptyTrend('approval_throughput');
+  const payrollGovernanceTrend = payrollGovernanceTrendRes.status === 'fulfilled' ? payrollGovernanceTrendRes.value : emptyTrend('payroll_governance');
 
   const overdueTasks = tasks.filter((task) => task.deadline && new Date(task.deadline) < now && !['Completed', 'Archived'].includes(task.status)).length;
   const escalatedTasks = tasks.filter((task) => task.status === 'Escalated').length;

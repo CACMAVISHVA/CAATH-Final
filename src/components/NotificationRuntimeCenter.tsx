@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, Bell, CheckCheck, RefreshCw, RadioTower, Search } from 'lucide-react';
+import { Archive, Bell, CheckCheck, ExternalLink, RefreshCw, RadioTower, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from './Toast';
 import { cn } from '../lib/utils';
@@ -175,12 +175,20 @@ export const NotificationRuntimeCenter: React.FC = () => {
                   <p className="mt-2 text-[11px] text-slate-600">{new Date(item.created_at).toLocaleString()}</p>
                 </div>
                 <div className="flex gap-2">
+                  {item.action_url?.startsWith('/app?') && (
+                    <button
+                      onClick={() => window.location.assign(item.action_url!)}
+                      className="flex items-center gap-2 bg-gold px-3 py-2 text-xs font-bold text-matte-black"
+                    >
+                      <ExternalLink className="h-4 w-4" /> Review
+                    </button>
+                  )}
                   {item.status === 'UNREAD' && (
-                    <button onClick={() => handleMarkRead(item.id)} className="border border-slate-800 p-2 text-slate-400 hover:text-emerald-300">
+                    <button aria-label={`Mark ${item.title} as read`} onClick={() => handleMarkRead(item.id)} className="border border-slate-800 p-2 text-slate-400 hover:text-emerald-300">
                       <CheckCheck className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => handleArchive(item.id)} className="border border-slate-800 p-2 text-slate-400 hover:text-red-300">
+                  <button aria-label={`Archive ${item.title}`} onClick={() => handleArchive(item.id)} className="border border-slate-800 p-2 text-slate-400 hover:text-red-300">
                     <Archive className="h-4 w-4" />
                   </button>
                 </div>

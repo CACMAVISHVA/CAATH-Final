@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, BrainCircuit, CheckCircle2, Gauge, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
+import { Activity, BrainCircuit, CheckCircle2, Download, Gauge, RefreshCw, ShieldAlert, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { playSound } from '../services/soundService';
 import { getGSTOperationalIntelligenceSnapshot } from '../services/gst/gstOperationalIntelligenceService';
@@ -24,12 +24,14 @@ import {
   UploadSessionState,
   AdaptiveGSTWorkflowState,
   GSTDatasetType,
+  executeGSTIntelligence,
 } from '../domains/gst-intelligence';
-import { parseAndNormalizeSession } from '../domains/gst-intelligence/parsing-engine/parsingEngine';
+import { parseAndNormalizeSession, parseGSTDatasetFile } from '../domains/gst-intelligence/parsing-engine/parsingEngine';
 import { buildStorageEnvelope } from '../domains/gst-intelligence/storage/storageContracts';
 import { buildGSTResolutionCenter, GSTResolutionCenterResult } from '../domains/gst-resolution-center';
 import { buildComplianceKnowledgeGraph, ComplianceKnowledgeGraphResult } from '../domains/compliance-knowledge';
 import { buildComplianceHistoryDashboard, ComplianceHistoryDashboardModel } from '../domains/compliance-history-dashboard';
+import { exportGSTReport } from '../services/gst/gstExportService';
 
 const buildFinancialYears = (periods: string[]) => {
   const years = new Set<string>();
@@ -51,6 +53,12 @@ const buildFinancialYears = (periods: string[]) => {
 
 const MONTHS = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March'];
 const QUARTERS = ['Q1 (Apr-Jun)', 'Q2 (Jul-Sep)', 'Q3 (Oct-Dec)', 'Q4 (Jan-Mar)'];
+
+const readableError = (error: unknown, fallback: string) => {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) return String(error.message);
+  return fallback;
+};
 
 const GSTIntelligenceCenter: React.FC = () => {
   const { user } = useAuth();
@@ -111,6 +119,28 @@ const GSTIntelligenceCenter: React.FC = () => {
   }, [selectedPresetId, selectedModuleIds.join('|')]);
 
   useEffect(() => {
+    if (!user?.firmId || !selectedClientId) {
+      setValidationArtifactId(null);
+      setValidationRecords([]);
+      return;
+    }
+
+    let cancelled = false;
+    getLatestGSTValidationArtifact(user.firmId, selectedClientId)
+      .then((latest) => {
+        if (cancelled) return;
+        const details = latest?.details as { validation?: GSTProductionValidationRecord[] } | null | undefined;
+        setValidationArtifactId(latest?.id || null);
+        setValidationRecords(Array.isArray(details?.validation) ? details.validation : []);
+      })
+      .catch((loadError) => {
+        if (!cancelled) console.warn('GST validation history could not be restored:', loadError);
+      });
+
+    return () => { cancelled = true; };
+  }, [user?.firmId, selectedClientId]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       if (selectedClientId && selectedPeriodValue) loadContext();
     }, 60000);
@@ -121,6 +151,27 @@ const GSTIntelligenceCenter: React.FC = () => {
     () => context?.context.clients.find((c) => c.clientId === selectedClientId) || null,
     [context?.context.clients, selectedClientId]
   );
+  const reportCatalog = useMemo(() => {
+    if (!engineResult) return [];
+    const context = { client: engineResult.context.clientProfile?.clientName || 'Client', gstin: engineResult.context.clientProfile?.gstin || '', period: engineResult.context.filingPeriod };
+    const findings = (rows: Array<{ invoiceKey: string; reason: string; severity: string }>) => rows.map((row) => ({ ...context, invoice: row.invoiceKey, reason: row.reason, severity: row.severity }));
+    return [
+      { title: 'Executive risk scorecard', rows: [{ ...context, ...engineResult.execution.riskScores, confidence: engineResult.indicators.confidence }] },
+      { title: 'Missing ITC invoices', rows: findings(engineResult.execution.reconciliation.missingInvoices) },
+      { title: 'Excess ITC review', rows: findings(engineResult.execution.reconciliation.excessITCInvoices) },
+      { title: 'Duplicate invoice review', rows: findings(engineResult.execution.reconciliation.duplicateInvoices) },
+      { title: 'Vendor mismatch report', rows: findings(engineResult.execution.reconciliation.vendorMismatches) },
+      { title: 'GSTR-1 vs GSTR-3B variance', rows: [{ ...context, taxable_turnover_variance_percent: engineResult.execution.variance.taxableTurnoverVariance, liability_variance_percent: engineResult.execution.variance.liabilityVariance }] },
+      { title: 'Variance exception register', rows: findings(engineResult.execution.variance.discrepancyFlags) },
+      { title: 'High-risk vendor register', rows: engineResult.execution.vendorRisk.highRiskVendors.map((row) => ({ ...context, vendor: row.vendorName, risk_score: row.riskScore, reason: row.reason })) },
+      { title: 'Audit scrutiny triggers', rows: engineResult.execution.auditRisk.scrutinyTriggers.map((trigger) => ({ ...context, trigger })) },
+      { title: 'Compliance weaknesses', rows: engineResult.execution.auditRisk.complianceWeaknesses.map((weakness) => ({ ...context, weakness })) },
+      { title: 'Anomaly register', rows: engineResult.execution.anomalies.anomalies.map((row) => ({ ...context, code: row.code, summary: row.summary, severity: row.severity })) },
+      { title: 'Workflow action register', rows: engineResult.execution.workflowActions.map((row) => ({ ...context, action: row.title, type: row.actionType, priority: row.priority, reason: row.reason })) },
+      { title: 'AI insight register', rows: engineResult.aiInsights.map((row) => ({ ...context, insight: row.title, summary: row.summary, recommendation: row.recommendation, priority: row.priority })) },
+      { title: 'Processing timeline', rows: engineResult.execution.timeline.map((row) => ({ ...context, stage: row.stage, message: row.message, timestamp: row.timestamp })) },
+    ];
+  }, [engineResult]);
 
   const derivedPeriod = useMemo(() => {
     if (!selectedFinancialYear || !selectedPeriodValue) return '';
@@ -172,7 +223,7 @@ const GSTIntelligenceCenter: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await gstIntelligenceOrchestrator.runEngine({
+      const baseResult = await gstIntelligenceOrchestrator.runEngine({
         user,
         clientId: selectedClientId,
         filingPeriod: derivedPeriod,
@@ -181,6 +232,29 @@ const GSTIntelligenceCenter: React.FC = () => {
         presetId: selectedPresetId,
         moduleIds: selectedModuleIds,
       });
+      const execution = adaptiveState?.storage
+        ? executeGSTIntelligence({
+          storageEnvelope: adaptiveState.storage,
+          modules: GST_INTELLIGENCE_MODULES.filter((module) => selectedModuleIds.includes(module.id)),
+          existingInsights: baseResult.aiInsights,
+          baselineScores: baseResult.riskScores,
+        })
+        : baseResult.execution;
+      const result: GSTIntelligenceEngineResult = {
+        ...baseResult,
+        execution,
+        aiInsights: execution.aiInsights,
+        riskScores: {
+          ...baseResult.riskScores,
+          compliance: execution.riskScores.compliance,
+          audit: execution.riskScores.auditExposure,
+          vendor: execution.riskScores.vendorRisk,
+          operationalEfficiency: execution.riskScores.operationalRisk,
+          itcRisk: execution.riskScores.itcRisk,
+          auditExposure: execution.riskScores.auditExposure,
+          operationalRisk: execution.riskScores.operationalRisk,
+        },
+      };
       setEngineResult(result);
       const resolution = buildGSTResolutionCenter(result);
       const knowledge = buildComplianceKnowledgeGraph({
@@ -208,10 +282,16 @@ const GSTIntelligenceCenter: React.FC = () => {
         detail: `Analysis executed with ${result.execution.workflowActions.length} workflow action(s), ${result.execution.aiInsights.length} insight(s).`,
         createdAt: new Date().toISOString(),
       };
-      setValidationRecords((current) => [...current.filter((item) => item.stage !== 'analysis_execution'), analysisRecord]);
+      const completedValidation = [...validationRecords.filter((item) => item.stage !== 'analysis_execution'), analysisRecord];
+      setValidationRecords(completedValidation);
+      if (adaptiveState?.storage) {
+        await recordGSTValidationArtifact(adaptiveState.storage, user, completedValidation);
+        const latest = await getLatestGSTValidationArtifact(user.firmId!, selectedClientId);
+        setValidationArtifactId(latest?.id || null);
+      }
       setLastRefreshedAt(new Date().toISOString());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to execute GST intelligence engine.');
+      setError(readableError(err, 'Failed to execute GST intelligence engine.'));
     } finally {
       setLoading(false);
     }
@@ -220,8 +300,20 @@ const GSTIntelligenceCenter: React.FC = () => {
   const categoryLabel = (key: string) => key.replace('_', ' ').toUpperCase();
   const handleDatasetUpload = async (dataset: GSTDatasetType, file?: File | null) => {
     if (!uploadSession || !file || !user?.firmId || !selectedClientId) return;
-    const next = uploadDatasetInSession(uploadSession, dataset, file.name);
+    setError(null);
+    let summary: Awaited<ReturnType<typeof parseGSTDatasetFile>>;
+    try {
+      summary = await parseGSTDatasetFile(dataset, file);
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : 'The GST dataset could not be parsed.');
+      return;
+    }
+    const next = uploadDatasetInSession(uploadSession, dataset, file.name, summary);
     setUploadSession(next);
+    if (!summary.valid) {
+      setError(summary.errors.join(' '));
+      return;
+    }
     const artifacts = parseAndNormalizeSession(next);
     const envelope = buildStorageEnvelope({
       tenantId: user.firmId,
@@ -236,7 +328,7 @@ const GSTIntelligenceCenter: React.FC = () => {
       {
         stage: 'upload',
         status: 'PASS',
-        detail: `${file.name} accepted for ${dataset}.`,
+        detail: `${file.name} accepted for ${dataset}; ${summary.records} record(s) parsed.`,
         createdAt: new Date().toISOString(),
       },
       {
@@ -248,7 +340,7 @@ const GSTIntelligenceCenter: React.FC = () => {
       {
         stage: 'parsing',
         status: artifacts.some((item) => item.dataset === dataset) ? 'PASS' : 'PARTIAL',
-        detail: `${artifacts.length} normalized artifact(s) available in upload session.`,
+        detail: `${summary.records} record(s), ${summary.duplicateInvoices} duplicate(s), taxable value ${summary.taxableValue.toFixed(2)}, tax ${summary.taxAmount.toFixed(2)}.`,
         createdAt: new Date().toISOString(),
       },
       {
@@ -342,12 +434,14 @@ const GSTIntelligenceCenter: React.FC = () => {
                       <label key={dataset} className="block p-3 rounded-lg border border-slate-800 bg-matte-black cursor-pointer">
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-bold text-white">{def.label}</p>
-                          <span className={`text-[10px] uppercase ${sessionRow?.status === 'uploaded' || sessionRow?.status === 'ready' ? 'text-emerald-300' : 'text-amber-300'}`}>{sessionRow?.status || 'pending'}</span>
+                          <span className={`text-[10px] uppercase ${['parsed', 'validated', 'ready'].includes(sessionRow?.status || '') ? 'text-emerald-300' : sessionRow?.status === 'failed' ? 'text-red-300' : 'text-amber-300'}`}>{sessionRow?.status || 'pending'}</span>
                         </div>
                         <p className="text-xs text-slate-400 mt-1">{def.description}</p>
                         <p className="text-[11px] text-slate-500 mt-1">{getUploadGuidance(dataset)}</p>
+                        {sessionRow?.message && <p className={`text-[11px] mt-1 ${sessionRow.status === 'failed' ? 'text-red-300' : 'text-emerald-300'}`}>{sessionRow.message}</p>}
                         <input
                           type="file"
+                          accept={def.acceptedFormats.map((format) => `.${format}`).join(',')}
                           className="hidden"
                           onChange={(e) => handleDatasetUpload(dataset, e.target.files?.[0] || null)}
                         />
@@ -366,11 +460,13 @@ const GSTIntelligenceCenter: React.FC = () => {
                       <label key={dataset} className="block p-3 rounded-lg border border-slate-800 bg-matte-black cursor-pointer">
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-bold text-white">{def.label}</p>
-                          <span className={`text-[10px] uppercase ${sessionRow?.status === 'uploaded' || sessionRow?.status === 'ready' ? 'text-emerald-300' : 'text-slate-400'}`}>{sessionRow?.status || 'optional'}</span>
+                          <span className={`text-[10px] uppercase ${['parsed', 'validated', 'ready'].includes(sessionRow?.status || '') ? 'text-emerald-300' : sessionRow?.status === 'failed' ? 'text-red-300' : 'text-slate-400'}`}>{sessionRow?.status || 'optional'}</span>
                         </div>
                         <p className="text-xs text-slate-400 mt-1">{def.description}</p>
+                        {sessionRow?.message && <p className={`text-[11px] mt-1 ${sessionRow.status === 'failed' ? 'text-red-300' : 'text-emerald-300'}`}>{sessionRow.message}</p>}
                         <input
                           type="file"
+                          accept={def.acceptedFormats.map((format) => `.${format}`).join(',')}
                           className="hidden"
                           onChange={(e) => handleDatasetUpload(dataset, e.target.files?.[0] || null)}
                         />
@@ -459,6 +555,15 @@ const GSTIntelligenceCenter: React.FC = () => {
 
       {engineResult && (
         <div className="space-y-4">
+          <section className="rounded-2xl border border-slate-800 bg-matte-black-light p-4" aria-labelledby="gst-report-library">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div><p className="text-xs uppercase tracking-[0.24em] text-slate-500">Audit-ready exports</p><h3 id="gst-report-library" className="mt-1 text-lg font-bold text-white">GST report library</h3></div>
+              <p className="text-xs text-slate-500">{reportCatalog.length} reports generated from this controlled analysis run</p>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {reportCatalog.map((report) => <button key={report.title} type="button" disabled={!report.rows.length} onClick={() => exportGSTReport(`${report.title} - ${engineResult.context.filingPeriod}`, report.rows, 'csv')} className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-left text-sm font-bold text-slate-200 transition-colors hover:border-gold/50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-40"><span>{report.title}<span className="ml-2 text-[10px] font-normal text-slate-500">{report.rows.length} rows</span></span><Download className="h-4 w-4 shrink-0"/></button>)}
+            </div>
+          </section>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/70"><p className="text-xs text-slate-500">Compliance Score</p><p className="text-2xl font-bold text-white">{engineResult.riskScores.compliance}</p></div>
             <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/70"><p className="text-xs text-slate-500">Audit Risk Score</p><p className="text-2xl font-bold text-white">{engineResult.riskScores.audit}</p></div>
