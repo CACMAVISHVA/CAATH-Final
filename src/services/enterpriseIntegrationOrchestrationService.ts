@@ -161,7 +161,10 @@ export const registerIntegrationOrchestrationChain = async (params: {
     details,
   }]).select('*').single();
 
-  if (error) throw error;
+  if (error) {
+    console.warn('[AUTH] Optional integration module unavailable: enterprise_activities', error);
+    return null;
+  }
 
   try {
     await recordOperationalTelemetry({
@@ -231,7 +234,7 @@ export const getIntegrationHealthSnapshot = async (actor: User): Promise<Integra
     };
   }
 
-  const [chainsRes, notificationsRes] = await Promise.all([
+  const [chainsRes, notificationsRes] = await Promise.allSettled([
     supabase
       .from('enterprise_activities')
       .select('id,event_subtype,details,created_at')
@@ -245,12 +248,14 @@ export const getIntegrationHealthSnapshot = async (actor: User): Promise<Integra
       .eq('firm_id', actor.firmId)
       .eq('status', 'UNREAD')
       .limit(300),
-  ]);
+  ] as const);
 
-  if (chainsRes.error) throw chainsRes.error;
-  if (notificationsRes.error) throw notificationsRes.error;
-
-  const chains = (chainsRes.data || []) as Array<{ id: string; event_subtype: string; details: Record<string, unknown>; created_at: string }>;
+  const chains = chainsRes.status === 'fulfilled' && !chainsRes.value.error
+    ? (chainsRes.value.data || []) as Array<{ id: string; event_subtype: string; details: Record<string, unknown>; created_at: string }>
+    : (console.warn('[AUTH] Optional integration module unavailable: enterprise_activities', chainsRes.status === 'rejected' ? chainsRes.reason : chainsRes.value.error), []);
+  const notifications = notificationsRes.status === 'fulfilled' && !notificationsRes.value.error
+    ? notificationsRes.value.data || []
+    : (console.warn('[AUTH] Optional integration module unavailable: notifications', notificationsRes.status === 'rejected' ? notificationsRes.reason : notificationsRes.value.error), []);
   const visibleConnectors = getIntegrationConnectorRegistry(actor);
 
   const chainRows = chains.map((row) => {
@@ -260,7 +265,7 @@ export const getIntegrationHealthSnapshot = async (actor: User): Promise<Integra
     return { connectorKey, status, details };
   });
 
-  const notificationDeliveryFailures = (notificationsRes.data || []).filter((n: any) => n.priority === 'CRITICAL').length;
+  const notificationDeliveryFailures = notifications.filter((n: any) => n.priority === 'CRITICAL').length;
 
   const connectors = visibleConnectors.map((connector) => {
     const relatedChains = chainRows.filter((row) => row.connectorKey === connector.key);
@@ -324,4 +329,3 @@ export const getIntegrationHealthSnapshot = async (actor: User): Promise<Integra
     },
   };
 };
-

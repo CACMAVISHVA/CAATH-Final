@@ -8,6 +8,9 @@ import { emitDomainEvent } from '../../sharedEventEmitter';
 import { buildOperationalId, normalizeClientEntityType } from '../../../lib/operationalIdentity';
 import { clientRepository } from '../repositories/ClientRepository';
 import { unwrapData, unwrapOptional } from '../../../infrastructure/repositories/baseRepository';
+import { firstValidationError, validateCinOrLlpin, validateEmail, validateGSTIN, validateIndianMobile, validatePAN, validateRequiredName, validateTAN } from '../../../lib/fieldValidation';
+
+export { validateGSTIN, validatePAN } from '../../../lib/fieldValidation';
 
 export type ClientType = 'Proprietorship' | 'Partnership Firm' | 'LLP' | 'Private Limited Company' | 'Public Company' | 'Trust' | 'NGO' | 'Others';
 export type RiskLevel = 'Low' | 'Medium' | 'High';
@@ -56,21 +59,16 @@ export type ClientRow = {
   updated_at: string;
 };
 
-export const validatePAN = (pan: string): { valid: boolean; error?: string } => {
-  const cleanPAN = pan.trim().toUpperCase();
-  const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-  if (!cleanPAN) return { valid: false, error: 'PAN is required' };
-  if (!panRegex.test(cleanPAN)) return { valid: false, error: 'Invalid PAN format. Expected: ABCDE1234F' };
-  return { valid: true };
-};
-
-export const validateGSTIN = (gstin: string): { valid: boolean; error?: string } => {
-  const cleanGSTIN = gstin.trim().toUpperCase();
-  if (!cleanGSTIN) return { valid: true };
-  const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-  if (!gstinRegex.test(cleanGSTIN)) return { valid: false, error: 'Invalid GSTIN format. Expected: 27ABCDE1234F1Z5' };
-  return { valid: true };
-};
+const validateClientFields = (input: { name?: string; type?: string; pan?: string; gstin?: string; tan?: string; cinLlpin?: string; email?: string; phone?: string }, requireIdentity: boolean) => firstValidationError(
+  input.name !== undefined ? validateRequiredName(input.name, 'Client name') : { valid: true },
+  requireIdentity && !input.type?.trim() ? { valid: false, error: 'Please select a valid business type.' } : { valid: true },
+  input.pan !== undefined ? validatePAN(input.pan, requireIdentity) : { valid: true },
+  validateGSTIN(input.gstin || ''),
+  validateTAN(input.tan || ''),
+  validateCinOrLlpin(input.cinLlpin || ''),
+  validateEmail(input.email || '', false),
+  validateIndianMobile(input.phone || '', false),
+);
 
 const writeAuditLog = async (params: { firmId: string; user: User; action: string; entityType: string; entityId?: string; details: string }) => {
   await unwrapData(clientRepository.insertAuditLog({
@@ -85,16 +83,18 @@ const writeAuditLog = async (params: { firmId: string; user: User; action: strin
   }) as any);
 };
 
+const assertCanManageClients = (user: User) => {
+  if (user.role !== 'SuperAdmin' && user.role !== 'Admin') {
+    throw new Error('Only Super Admin or Admin can create or change client master records.');
+  }
+};
+
 export const createClient = async ({ firmId, name, type, pan, gstin, tan, cinLlpin, portalUsername, portalUsernames, contactPerson, email, phone, riskLevel = 'Low', services = [], assignedStaffId, user }: ClientInput) => {
+  assertCanManageClients(user);
   if (!user.firmId) throw new Error('A firm workspace is required to create clients.');
 
-  const panValidation = validatePAN(pan);
-  if (!panValidation.valid) throw new Error(panValidation.error);
-
-  if (gstin) {
-    const gstinValidation = validateGSTIN(gstin);
-    if (!gstinValidation.valid) throw new Error(gstinValidation.error);
-  }
+  const validationError = validateClientFields({ name, type, pan, gstin, tan, cinLlpin, email, phone }, true);
+  if (validationError) throw new Error(validationError);
 
   const existingClient = await unwrapOptional(clientRepository.findByPan(firmId, pan.toUpperCase()) as any);
   if (existingClient) throw new Error('A client with this PAN already exists in your firm.');
@@ -128,22 +128,35 @@ export const createClient = async ({ firmId, name, type, pan, gstin, tan, cinLlp
 };
 
 export const updateClient = async (clientId: string, updates: Partial<{ name: string; type: string; tan: string; cinLlpin: string; portalUsername: string; portalUsernames: Record<string, string>; contactPerson: string; email: string; phone: string; riskLevel: RiskLevel; services: string[]; assignedStaffId: string }>, user: User) => {
+  assertCanManageClients(user);
   if (!user.firmId) throw new Error('A firm workspace is required.');
+  const validationError = validateClientFields(updates, false);
+  if (validationError) throw new Error(validationError);
 
-  const updateData: Record<string, unknown> = { ...updates, updated_by: user.id, updated_at: new Date().toISOString() };
-  if (updates.contactPerson) updateData.contact_person = updates.contactPerson;
-  if (updates.assignedStaffId) updateData.assigned_staff_id = updates.assignedStaffId;
-  if (updates.riskLevel) updateData.risk_level = updates.riskLevel;
-  if (updates.tan !== undefined) updateData.tan = updates.tan ? updates.tan.toUpperCase() : null;
-  if (updates.cinLlpin !== undefined) updateData.cin_llpin = updates.cinLlpin ? updates.cinLlpin.toUpperCase() : null;
-  if (updates.portalUsername !== undefined) updateData.portal_username = updates.portalUsername || null;
-  if (updates.portalUsernames !== undefined) updateData.portal_usernames = updates.portalUsernames || {};
+  const {
+    contactPerson,
+    assignedStaffId,
+    riskLevel,
+    cinLlpin,
+    portalUsername,
+    portalUsernames,
+    ...directFields
+  } = updates;
+  const updateData: Record<string, unknown> = { ...directFields, updated_by: user.id, updated_at: new Date().toISOString() };
+
+  if (contactPerson !== undefined) updateData.contact_person = contactPerson || null;
+  if (assignedStaffId !== undefined) updateData.assigned_staff_id = assignedStaffId || null;
+  if (riskLevel !== undefined) updateData.risk_level = riskLevel;
+  if (cinLlpin !== undefined) updateData.cin_llpin = cinLlpin ? cinLlpin.toUpperCase() : null;
+  if (portalUsername !== undefined) updateData.portal_username = portalUsername || null;
+  if (portalUsernames !== undefined) updateData.portal_usernames = portalUsernames || {};
 
   await unwrapData(clientRepository.updateById(user.firmId, clientId, updateData) as any);
   await writeAuditLog({ firmId: user.firmId, user, action: 'Client Updated', entityType: 'Client', entityId: clientId, details: `Client ${clientId} updated.` });
 };
 
 export const deleteClient = async (clientId: string, user: User) => {
+  assertCanManageClients(user);
   if (!user.firmId) throw new Error('A firm workspace is required.');
   const client = await unwrapOptional(clientRepository.getName(clientId) as any);
   await unwrapData(clientRepository.deleteById(user.firmId, clientId) as any);

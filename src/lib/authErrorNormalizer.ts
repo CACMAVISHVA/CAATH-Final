@@ -49,8 +49,9 @@ export const normalizeAuthError = (error: any): SafeAuthError => {
 
   // Extract error message
   const errorMessage = typeof error === 'string' ? error : error.message || String(error);
-  const errorCode = error.status || error.code || '';
+  const errorCode = error.error_code || error.code || error.status || '';
   const normalizedMessage = errorMessage.toLowerCase();
+  const normalizedCode = String(errorCode).toLowerCase();
 
   // Map known errors to safe messages
   if (normalizedMessage.includes('row-level security') || normalizedMessage.includes('violates row-level security')) {
@@ -87,7 +88,7 @@ export const normalizeAuthError = (error: any): SafeAuthError => {
     };
   }
 
-  if (normalizedMessage.includes('already exists') || normalizedMessage.includes('already registered') || normalizedMessage.includes('user already registered')) {
+  if (normalizedCode === 'user_already_exists' || normalizedMessage.includes('already exists') || normalizedMessage.includes('already registered') || normalizedMessage.includes('user already registered')) {
     return {
       code: 'USER_ALREADY_EXISTS',
       userMessage: 'This email is already registered. Please login or reset your password.',
@@ -95,11 +96,42 @@ export const normalizeAuthError = (error: any): SafeAuthError => {
     };
   }
 
-  if (normalizedMessage.includes('weak password') || normalizedMessage.includes('password should') || normalizedMessage.includes('password must')) {
+  if (
+    normalizedCode === 'weak_password'
+    || normalizedMessage.includes('weak password')
+    || normalizedMessage.includes('known to be weak')
+    || normalizedMessage.includes('password should')
+    || normalizedMessage.includes('password must')
+  ) {
     return {
       code: 'WEAK_PASSWORD',
-      userMessage: 'Password does not meet security requirements. Please use a stronger password.',
+      userMessage: 'This password is too common or does not meet security requirements. Please choose a unique password with uppercase, lowercase, number and special characters.',
       isRetryable: true,
+    };
+  }
+
+  if (normalizedCode === 'over_email_send_rate_limit' || normalizedMessage.includes('email rate limit')) {
+    return {
+      code: 'SERVICE_ERROR',
+      userMessage: 'Too many verification emails were requested. Please wait a few minutes and try again.',
+      isRetryable: true,
+    };
+  }
+
+  if (normalizedCode === 'email_address_invalid' || normalizedMessage.includes('invalid email address')) {
+    return {
+      code: 'INVALID_CREDENTIALS',
+      userMessage: 'Please enter a valid email address.',
+      isRetryable: true,
+    };
+  }
+
+  if (normalizedCode === 'signup_disabled' || normalizedMessage.includes('signups not allowed')) {
+    return {
+      code: 'SERVICE_ERROR',
+      userMessage: 'New registrations are temporarily unavailable. Please contact CAATH support.',
+      isRetryable: false,
+      isDeveloperError: true,
     };
   }
 

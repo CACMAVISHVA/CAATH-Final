@@ -64,6 +64,38 @@ const toSeverity = (score: number): FinancialRiskIndicator['severity'] => {
   return 'low';
 };
 
+const emptyRevenue = {
+  generatedAt: new Date().toISOString(),
+  kpis: {
+    revenueReceivedThisMonth: 0,
+    receivablesPending: 0,
+    overdueCollections: 0,
+    invoicesPendingGeneration: 0,
+    completedTasksAwaitingBilling: 0,
+    revenueRealizationRate: 0,
+    billingBottleneckCount: 0,
+    unresolvedNoticeCount: 0,
+    unresolvedNoticeRiskHigh: 0,
+  },
+  breakdown: { byService: [], byClient: [] },
+  workflowSignals: [],
+};
+
+const optionalRows = <T>(
+  result: PromiseSettledResult<{ data: T[] | null; error: unknown }>,
+  label: string,
+): T[] => {
+  if (result.status === 'rejected') {
+    console.warn(`[AUTH] Optional financial module unavailable: ${label}`, result.reason);
+    return [];
+  }
+  if (result.value.error) {
+    console.warn(`[AUTH] Optional financial module unavailable: ${label}`, result.value.error);
+    return [];
+  }
+  return result.value.data || [];
+};
+
 export const getEnterpriseFinancialIntelligenceSnapshot = async (
   firmId: string,
   user: User
@@ -76,7 +108,7 @@ export const getEnterpriseFinancialIntelligenceSnapshot = async (
   const sevenDaysAgoIso = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  const [revenue, invoicesRes, clientsRes, tasksRes, noticesRes, approvalsRes, payrollRes, expensesRes] = await Promise.all([
+  const [revenueRes, invoicesRes, clientsRes, tasksRes, noticesRes, approvalsRes, payrollRes, expensesRes] = await Promise.allSettled([
     getRevenueIntelligenceSnapshot(firmId),
     supabase.from('invoices').select('id,client_id,billing_category,total,paid_amount,pending_amount,due_date,status,issue_date').eq('firm_id', firmId).neq('status', 'Cancelled'),
     supabase.from('clients').select('id,name').eq('firm_id', firmId),
@@ -85,23 +117,18 @@ export const getEnterpriseFinancialIntelligenceSnapshot = async (
     supabase.from('approval_tasks').select('id,status,updated_at,module').eq('firm_id', firmId),
     supabase.from('payroll_runs').select('id,net_amount,payout_status,created_at').eq('firm_id', firmId),
     supabase.from('expenses').select('id,total,status,created_at').eq('firm_id', firmId),
-  ]);
+  ] as const);
 
-  if (invoicesRes.error) throw invoicesRes.error;
-  if (clientsRes.error) throw clientsRes.error;
-  if (tasksRes.error) throw tasksRes.error;
-  if (noticesRes.error) throw noticesRes.error;
-  if (approvalsRes.error) throw approvalsRes.error;
-  if (payrollRes.error) throw payrollRes.error;
-  if (expensesRes.error) throw expensesRes.error;
-
-  const invoices = invoicesRes.data || [];
-  const clients = clientsRes.data || [];
-  const tasks = tasksRes.data || [];
-  const notices = noticesRes.data || [];
-  const approvals = approvalsRes.data || [];
-  const payrollRuns = payrollRes.data || [];
-  const expenses = expensesRes.data || [];
+  const revenue = revenueRes.status === 'fulfilled'
+    ? revenueRes.value
+    : (console.warn('[AUTH] Optional financial module unavailable: revenue intelligence', revenueRes.reason), emptyRevenue);
+  const invoices = optionalRows(invoicesRes, 'invoices');
+  const clients = optionalRows(clientsRes, 'clients');
+  const tasks = optionalRows(tasksRes, 'tasks');
+  const notices = optionalRows(noticesRes, 'notices');
+  const approvals = optionalRows(approvalsRes, 'approval_tasks');
+  const payrollRuns = optionalRows(payrollRes, 'payroll_runs');
+  const expenses = optionalRows(expensesRes, 'expenses');
 
   const accrualRevenue = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
   const realizedRevenue = invoices.reduce((sum, inv) => sum + (inv.paid_amount || 0), 0);
@@ -300,4 +327,3 @@ export const getEnterpriseFinancialIntelligenceSnapshot = async (
     financialRisks,
   };
 };
-

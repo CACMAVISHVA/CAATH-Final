@@ -270,14 +270,14 @@ export const Dashboard: React.FC = () => {
   const showCognitivePanel = !loading && cognitiveViewModel !== null;
 
   return (
-    <div className="p-8 space-y-8 overflow-y-auto h-full bg-matte-black text-slate-300">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:space-y-8 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold gold-text-gradient">
             Welcome back, {getUserFirstName(user, session)}
           </h2>
-          <div className="flex items-center gap-4 mt-1">
+          <div className="mt-1 flex flex-wrap items-center gap-3">
             <p className="text-slate-500">Here's what's happening in your practice today.</p>
             <div className="flex items-center gap-2 px-2 py-0.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded-full text-[10px] font-bold uppercase tracking-wider">
               <Activity className="w-3 h-3" />

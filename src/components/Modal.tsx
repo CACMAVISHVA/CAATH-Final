@@ -56,6 +56,7 @@ export const Modal: React.FC<ModalProps> = ({
         ref={modalRef}
         tabIndex={-1}
         role="dialog"
+        aria-label={title || 'Dialog'}
         aria-modal="true"
         className={cn(
           'bg-matte-black-light border border-slate-800 rounded-2xl w-full max-h-[90vh] overflow-hidden pointer-events-auto flex flex-col',
@@ -73,6 +74,7 @@ export const Modal: React.FC<ModalProps> = ({
               </div>
               <button
                 onClick={onClose}
+                aria-label="Close dialog"
                 className="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
               >
                 <X className="w-5 h-5" />

@@ -1,6 +1,8 @@
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { User, UserRole, WorkspaceSubscriptionPlan, SubscriptionStatus } from '../types';
 import { authSecurityService } from './authSecurityService';
+import { firstValidationError, normalizeIndianPhone, validateEmail, validateGSTIN, validateIndianMobile, validatePassword, validateRequiredName } from '../lib/fieldValidation';
 
 export const ONBOARDING_ROLES: UserRole[] = ['SuperAdmin', 'Admin', 'Staff', 'Client'];
 export const SELF_SERVICE_ONBOARDING_ROLE: UserRole = 'Client';
@@ -21,7 +23,6 @@ export type WorkspaceRegistrationInput = {
   mobile: string;
   password: string;
   gstin?: string;
-  subscriptionPlan: WorkspaceSubscriptionPlan;
 };
 
 export class WorkspaceOnboardingError extends Error {
@@ -72,6 +73,20 @@ const describeSupabaseError = (error: unknown) => {
   ].filter(Boolean).join(' ');
 };
 
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+const createProvisioningAuthClient = () => createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    persistSession: false,
+    storageKey: `caath-provisioning-${crypto.randomUUID()}`,
+  },
+});
+
+const normalizeProvisioningEmail = (email: string) => email.trim().toLowerCase();
+
 export const getWorkspaceOnboardingErrorMessage = (error: unknown) => {
   if (error instanceof WorkspaceOnboardingError) {
     return `${error.message}${error.details ? ` ${error.details}` : ''}`;
@@ -100,17 +115,44 @@ export const createAccountWithRole = async ({
 }: RoleOnboardingInput) => {
   assertRoleCreationAllowed(actor, role);
 
+  const cleanEmail = normalizeProvisioningEmail(email);
+  const cleanName = fullName.trim();
+  const cleanPassword = password.trim();
   const resolvedFirmId = actor?.firmId || firmId || null;
   if (role !== 'GodAdmin' && !resolvedFirmId) {
     throw new Error('A valid firm workspace ID is required to create this account.');
   }
+  const identityError = firstValidationError(validateRequiredName(cleanName, 'Full name'), validateEmail(cleanEmail));
+  if (identityError) throw new Error(identityError);
+  if (!cleanPassword) throw new Error('Temporary password is required.');
+  if (cleanPassword.length < 8) {
+    throw new Error('Temporary password must be at least 8 characters.');
+  }
 
-  const { data, error } = await supabase.auth.signUp({
-    email: email.trim(),
-    password: password.trim(),
+  const duplicateQuery = supabase
+    .from('users')
+    .select('id, email, firm_id')
+    .ilike('email', cleanEmail)
+    .limit(1);
+
+  const { data: existingProfile, error: duplicateError } = resolvedFirmId
+    ? await duplicateQuery.eq('firm_id', resolvedFirmId).maybeSingle()
+    : await duplicateQuery.maybeSingle();
+
+  if (duplicateError && duplicateError.code !== 'PGRST116') {
+    throw new Error(`Could not validate duplicate email: ${describeSupabaseError(duplicateError)}`);
+  }
+  if (existingProfile) {
+    throw new Error('This email is already registered in this workspace.');
+  }
+
+  const provisioningClient = createProvisioningAuthClient();
+  const { data, error } = await provisioningClient.auth.signUp({
+    email: cleanEmail,
+    password: cleanPassword,
     options: {
       data: {
-        full_name: fullName.trim(),
+        full_name: cleanName,
         requested_role: role,
         requested_firm_id: resolvedFirmId,
         is_workspace_owner: false,
@@ -119,6 +161,36 @@ export const createAccountWithRole = async ({
   });
 
   if (error) throw error;
+  const authUser = data.user;
+  if (!authUser?.id) {
+    throw new Error('Account invitation was started, but Supabase did not return the new user identity.');
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('users')
+    .upsert([{
+      auth_id: authUser.id,
+      firm_id: resolvedFirmId,
+      name: cleanName,
+      email: cleanEmail,
+      role,
+      status: 'Active',
+      is_workspace_owner: false,
+      created_by: actor?.id ?? null,
+      updated_by: actor?.id ?? null,
+      updated_at: new Date().toISOString(),
+    }], { onConflict: 'auth_id' })
+    .select()
+    .single();
+
+  if (profileError) {
+    throw new WorkspaceOnboardingError(
+      'profile_provisioning',
+      'Authentication identity was created, but the staff profile could not be provisioned.',
+      describeSupabaseError(profileError),
+    );
+  }
+
   await authSecurityService.recordLoginActivity({
     firmId: resolvedFirmId,
     userId: actor?.id,
@@ -132,7 +204,7 @@ export const createAccountWithRole = async ({
       actorRole: actor?.role ?? 'SelfService',
     },
   });
-  return data;
+  return { auth: data, profile };
 };
 
 export const createWorkspaceOwnerAccount = async ({
@@ -142,29 +214,40 @@ export const createWorkspaceOwnerAccount = async ({
   mobile,
   password,
   gstin,
-  subscriptionPlan,
 }: WorkspaceRegistrationInput) => {
   const cleanFirmName = firmName.trim();
-  const cleanEmail = email.trim();
+  const cleanEmail = email.trim().toLowerCase();
   const cleanName = fullName.trim();
-  const cleanMobile = mobile.trim();
+  const cleanMobile = normalizeIndianPhone(mobile);
   const limits = PLAN_LIMITS.Starter;
   const subscriptionStatus: SubscriptionStatus = 'Trial';
   const subscriptionStartDate = new Date();
   const subscriptionExpiryDate = new Date(subscriptionStartDate);
-  subscriptionExpiryDate.setDate(subscriptionExpiryDate.getDate() + 7);
+  subscriptionExpiryDate.setDate(subscriptionExpiryDate.getDate() + 15);
 
-  if (!cleanFirmName || !cleanEmail || !cleanName || !cleanMobile || !password.trim()) {
-    throw new Error('Firm name, full name, email, mobile number, and password are required.');
-  }
+  const registrationError = firstValidationError(
+    validateRequiredName(cleanFirmName, 'Firm name'),
+    validateRequiredName(cleanName, 'Full name'),
+    validateEmail(cleanEmail),
+    validateIndianMobile(cleanMobile),
+    validateGSTIN(gstin || ''),
+    validatePassword(password),
+  );
+  if (registrationError) throw new Error(registrationError);
 
-  const { data: signupData, error: signupError } = await supabase.auth.signUp({
+  // Public registration must not share the application's persistent auth client.
+  // signUp can emit SIGNED_IN immediately, which would make AuthContext replace
+  // the registration form before the workspace bootstrap RPC has completed.
+  const registrationClient = createProvisioningAuthClient();
+  const { data: signupData, error: signupError } = await registrationClient.auth.signUp({
     email: cleanEmail,
-    password: password.trim(),
+    password,
     options: {
       data: {
+        firm_name: cleanFirmName,
         full_name: cleanName,
         mobile: cleanMobile,
+        gstin: gstin?.trim().toUpperCase() || null,
         requested_role: 'SuperAdmin',
         is_workspace_owner: true,
       },
@@ -183,7 +266,7 @@ export const createWorkspaceOwnerAccount = async ({
   });
 
   if (!signupData.session) {
-    const { error: loginError } = await supabase.auth.signInWithPassword({ email: cleanEmail, password: password.trim() });
+    const { error: loginError } = await registrationClient.auth.signInWithPassword({ email: cleanEmail, password });
     if (loginError) {
       throw new Error('Workspace account created. Please verify your email, then sign in to finish workspace activation.');
     }
@@ -198,7 +281,7 @@ export const createWorkspaceOwnerAccount = async ({
   };
   console.info('[AUTH] Workspace owner profile insert payload', profileInsertLog);
 
-  const { data: bootstrapRows, error: bootstrapError } = await supabase.rpc('create_workspace_owner', {
+  const { data: bootstrapRows, error: bootstrapError } = await registrationClient.rpc('create_workspace_owner', {
     p_firm_name: cleanFirmName,
     p_full_name: cleanName,
     p_email: cleanEmail,
@@ -247,10 +330,12 @@ export const createWorkspaceOwnerAccount = async ({
     user_id: bootstrap.user_id,
   });
 
-  const { error: metadataError } = await supabase.auth.updateUser({
+  const { error: metadataError } = await registrationClient.auth.updateUser({
     data: {
+      firm_name: cleanFirmName,
       full_name: cleanName,
       mobile: cleanMobile,
+      gstin: gstin?.trim().toUpperCase() || null,
       requested_role: 'SuperAdmin',
       requested_firm_id: bootstrap.firm_id,
       is_workspace_owner: true,
@@ -264,6 +349,10 @@ export const createWorkspaceOwnerAccount = async ({
       describeSupabaseError(metadataError),
     );
   }
+
+  // A public registration must not retain an authenticated workspace session
+  // until the platform owner has reviewed and approved it.
+  await registrationClient.auth.signOut();
 
   return { firmId: bootstrap.firm_id as string, userId: bootstrap.user_id as string };
 };

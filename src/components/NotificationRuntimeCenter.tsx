@@ -176,11 +176,11 @@ export const NotificationRuntimeCenter: React.FC = () => {
                 </div>
                 <div className="flex gap-2">
                   {item.status === 'UNREAD' && (
-                    <button onClick={() => handleMarkRead(item.id)} className="border border-slate-800 p-2 text-slate-400 hover:text-emerald-300">
+                    <button aria-label={`Mark ${item.title} as read`} onClick={() => handleMarkRead(item.id)} className="border border-slate-800 p-2 text-slate-400 hover:text-emerald-300">
                       <CheckCheck className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => handleArchive(item.id)} className="border border-slate-800 p-2 text-slate-400 hover:text-red-300">
+                  <button aria-label={`Archive ${item.title}`} onClick={() => handleArchive(item.id)} className="border border-slate-800 p-2 text-slate-400 hover:text-red-300">
                     <Archive className="h-4 w-4" />
                   </button>
                 </div>

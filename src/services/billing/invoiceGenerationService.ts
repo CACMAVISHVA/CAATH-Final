@@ -5,6 +5,7 @@
 
 import { supabase } from '../../lib/supabase';
 import { GSTTreatment, PlaceOfSupply } from './invoiceTypes';
+import { calculateInvoiceTax } from './taxCalculation';
 
 export const generateInvoiceNumber = async (firmId: string): Promise<string> => {
   const year = new Date().getFullYear();
@@ -36,17 +37,5 @@ export const calculateTax = (
   placeOfSupply: PlaceOfSupply,
   clientGstTreatment: GSTTreatment
 ): { cgst: number; sgst: number; igst: number } => {
-  // RCM or Export - no tax
-  if (clientGstTreatment === 'RCM' || clientGstTreatment === 'Export' || clientGstTreatment === 'SEZ') {
-    return { cgst: 0, sgst: 0, igst: 0 };
-  }
-
-  // Within State - CGST + SGST
-  if (placeOfSupply === 'Within State') {
-    const tax = (amount * gstRate) / 100;
-    return { cgst: tax / 2, sgst: tax / 2, igst: 0 };
-  }
-
-  // Inter State - IGST
-  return { cgst: 0, sgst: 0, igst: (amount * gstRate) / 100 };
+  return calculateInvoiceTax(amount, gstRate, placeOfSupply, clientGstTreatment);
 };

@@ -38,3 +38,17 @@ The seeded email addresses are usable only if those auth users have actually bee
 - Rotate or remove seed identities before production launch.
 - Prefer named real pilot users with audited roles.
 
+## Controlled Hosted Acceptance Identity
+
+On 11 September 2026, `caath-test-godadmin-20260911-2@example.com` was created through Supabase Authentication, auto-confirmed, and linked to an active platform-scoped `GodAdmin` profile with no firm assignment. Its password is intentionally not recorded. The account is for controlled hosted testing only and must be removed or rotated before market launch.
+
+Additional controlled identities were created in `CAATH Testing Workspace (IND-TN-887)` for hosted role testing:
+
+| Email | Role | Scope |
+|---|---|---|
+| `caath-uat-superadmin-20260911@example.com` | `SuperAdmin` | Testing workspace |
+| `caath-uat-admin-20260911@example.com` | `Admin` | Testing workspace |
+| `caath-uat-staff-20260911@example.com` | `Staff` | Assigned dummy client only |
+| `caath-uat-client-20260911@example.com` | `Client` | Linked to `CAATH Demo Client` |
+
+Passwords are intentionally not recorded. Remove or rotate every controlled identity before public launch.

@@ -50,6 +50,35 @@ const toSeverity = (score: number): 'info' | 'warning' | 'critical' => {
   return 'info';
 };
 
+const emptyKnowledgeGraph = {
+  generatedAt: new Date().toISOString(),
+  nodes: [],
+  edges: [],
+  metrics: {
+    relationshipDensity: 0,
+    dependencyChains: 0,
+    workflowImpactPropagation: 0,
+    crossDomainPressure: 0,
+    dependencyClusters: 0,
+  },
+  contextChains: [],
+};
+
+const optionalRows = <T>(
+  result: PromiseSettledResult<{ data: T[] | null; error: unknown }>,
+  label: string,
+): T[] => {
+  if (result.status === 'rejected') {
+    console.warn(`[AUTH] Optional relationship module unavailable: ${label}`, result.reason);
+    return [];
+  }
+  if (result.value.error) {
+    console.warn(`[AUTH] Optional relationship module unavailable: ${label}`, result.value.error);
+    return [];
+  }
+  return result.value.data || [];
+};
+
 export const getEnterpriseRelationshipSnapshot = async (
   firmId: string,
   user: User
@@ -58,26 +87,23 @@ export const getEnterpriseRelationshipSnapshot = async (
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [tasksRes, approvalsRes, noticesRes, reassignRes, automationRes, knowledgeGraph] = await Promise.all([
+  const [tasksRes, approvalsRes, noticesRes, reassignRes, automationRes, knowledgeGraphRes] = await Promise.allSettled([
     supabase.from('tasks').select('id,status,deadline,assigned_to,updated_at').eq('firm_id', firmId),
     supabase.from('approval_tasks').select('id,status,updated_at').eq('firm_id', firmId),
     supabase.from('notices').select('id,status,created_at').eq('firm_id', firmId),
     supabase.from('task_reassignments').select('id,created_at').eq('firm_id', firmId).gte('created_at', thirtyDaysAgo),
     supabase.from('automation_runs').select('id,status').eq('firm_id', firmId).gte('created_at', thirtyDaysAgo),
     getEnterpriseKnowledgeGraphSnapshot(firmId, user),
-  ]);
+  ] as const);
 
-  if (tasksRes.error) throw tasksRes.error;
-  if (approvalsRes.error) throw approvalsRes.error;
-  if (noticesRes.error) throw noticesRes.error;
-  if (reassignRes.error) throw reassignRes.error;
-  if (automationRes.error) throw automationRes.error;
-
-  const tasks = tasksRes.data || [];
-  const approvals = approvalsRes.data || [];
-  const notices = noticesRes.data || [];
-  const reassignments = reassignRes.data || [];
-  const automationRuns = automationRes.data || [];
+  const tasks = optionalRows(tasksRes, 'tasks');
+  const approvals = optionalRows(approvalsRes, 'approval_tasks');
+  const notices = optionalRows(noticesRes, 'notices');
+  const reassignments = optionalRows(reassignRes, 'task_reassignments');
+  const automationRuns = optionalRows(automationRes, 'automation_runs');
+  const knowledgeGraph = knowledgeGraphRes.status === 'fulfilled'
+    ? knowledgeGraphRes.value
+    : (console.warn('[AUTH] Optional relationship module unavailable: knowledge graph', knowledgeGraphRes.reason), emptyKnowledgeGraph);
 
   const visibleTasks = user.role === 'Staff' ? tasks.filter((t) => t.assigned_to === user.id) : tasks;
   const overdue = visibleTasks.filter((t) => t.deadline && new Date(t.deadline) < now && !['Completed', 'Archived'].includes(t.status)).length;

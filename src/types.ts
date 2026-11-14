@@ -52,6 +52,9 @@ export interface User {
 export interface WorkspaceFirm {
   id: string;
   name: string;
+  status: 'Active' | 'Inactive' | 'Suspended' | 'Pending Approval' | 'Rejected';
+  suspensionEffectiveAt?: string;
+  suspensionMode?: 'Grace Period' | 'Immediate Security';
   workspaceCode?: string;
   subscriptionPlan: WorkspaceSubscriptionPlan;
   subscriptionStatus: SubscriptionStatus;

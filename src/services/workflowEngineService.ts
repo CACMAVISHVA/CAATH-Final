@@ -84,7 +84,7 @@ const TRANSITIONS: Record<WorkflowEntity, Record<string, string[]>> = {
     Review: ['Under Review', 'In Progress', 'Escalated', 'Reassigned', 'Archived', 'Completed'],
     'Under Review': ['Completed', 'Escalated', 'Reassigned', 'Pending Approval', 'Archived'],
     Escalated: ['Assigned', 'In Progress', 'Under Review', 'Completed', 'Reassigned', 'Pending Approval', 'Archived'],
-    Reassigned: ['Assigned', 'In Progress', 'Under Review', 'Escalated', 'Archived'],
+    Reassigned: ['Assigned', 'Accepted', 'In Progress', 'Under Review', 'Escalated', 'Archived'],
     'Pending Approval': ['Under Review', 'Completed', 'Escalated', 'Archived'],
     Completed: ['Archived'],
     Archived: [],

@@ -6,6 +6,7 @@
 import { supabase } from '../lib/supabase';
 import { createNotification } from './notificationService';
 import { User } from '../types';
+import { firstValidationError, validateEmail, validateGSTIN, validateIndianMobile, validateRequiredName } from '../lib/fieldValidation';
 
 export type SubscriptionPlan = 'Starter' | 'Professional' | 'Enterprise';
 export type SubscriptionStatus =
@@ -17,7 +18,7 @@ export type SubscriptionStatus =
   | 'Suspended'
   | 'Cancelled'
   | 'Rejected';
-export type BillingCycle = 'Monthly' | 'Annual';
+export type BillingCycle = 'Monthly' | 'Quarterly' | 'Half-Yearly' | 'Yearly' | 'Annual';
 
 export interface Subscription {
   id: string;
@@ -33,6 +34,7 @@ export interface Subscription {
   end_date?: string | null;
   next_billing_date?: string | null;
   trial_end_date?: string | null;
+  grace_period_end_date?: string | null;
   features?: string[] | Record<string, boolean>;
   client_limit?: number;
   staff_limit?: number;
@@ -49,6 +51,7 @@ export interface SubscriptionPlanConfig {
   plan: SubscriptionPlan;
   monthlyAmount: number;
   annualAmount: number;
+  yearlyAmount?: number;
   clientLimit: number;
   staffLimit: number;
   storageLimitGB: number;
@@ -77,8 +80,18 @@ export interface SubscriptionRequest {
   amount: number;
   gst_amount: number;
   total_amount: number;
-  utr_number: string;
+  utr_number: string | null;
+  screenshot_url: string | null;
+  screenshot_path: string | null;
   status: 'Pending Verification' | 'Approved' | 'Rejected';
+  payment_provider?: 'Manual' | 'Cashfree';
+  gateway_order_id?: string | null;
+  gateway?: {
+    status: 'CREATED' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED';
+    provider_order_id: string;
+    provider_payment_id?: string | null;
+    paid_at?: string | null;
+  } | null;
   remarks: string | null;
   created_by: string | null;
   updated_by: string | null;
@@ -140,13 +153,49 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanConfig
 };
 
 export const getPlanAmount = (plan: SubscriptionPlan, billingCycle: BillingCycle) =>
-  billingCycle === 'Annual' ? SUBSCRIPTION_PLANS[plan].annualAmount : SUBSCRIPTION_PLANS[plan].monthlyAmount;
+  billingCycle === 'Yearly' || billingCycle === 'Annual'
+    ? SUBSCRIPTION_PLANS[plan].annualAmount
+    : billingCycle === 'Half-Yearly'
+      ? Math.round(SUBSCRIPTION_PLANS[plan].monthlyAmount * 6 * 0.92)
+      : billingCycle === 'Quarterly'
+        ? Math.round(SUBSCRIPTION_PLANS[plan].monthlyAmount * 3 * 0.96)
+        : SUBSCRIPTION_PLANS[plan].monthlyAmount;
 
 export const calculateSubscriptionTotals = (plan: SubscriptionPlan, billingCycle: BillingCycle) => {
   const amount = getPlanAmount(plan, billingCycle);
   const gstAmount = Math.round(amount * GST_RATE);
   return { amount, gstAmount, totalAmount: amount + gstAmount };
 };
+
+export interface CashfreeCheckoutOrder {
+  orderId: string;
+  gatewayOrderId: string;
+  paymentSessionId: string;
+  mode: 'sandbox' | 'production';
+  totalAmount: number;
+}
+
+const paymentApi = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (sessionError || !token) throw new Error('Sign in again to continue with payment.');
+  const response = await fetch(path, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(init?.headers || {}) },
+  });
+  const payload = await response.json().catch(() => ({})) as T & { error?: string };
+  if (!response.ok) throw new Error(payload.error || 'The payment service could not complete the request.');
+  return payload;
+};
+
+export const createCashfreeCheckoutOrder = (plan: SubscriptionPlan, billingCycle: BillingCycle) =>
+  paymentApi<CashfreeCheckoutOrder>('/api/cashfree-order', {
+    method: 'POST',
+    body: JSON.stringify({ plan, billingCycle }),
+  });
+
+export const verifyCashfreeCheckoutOrder = (orderId: string) =>
+  paymentApi<{ status: string; referenceNumber?: string }>(`/api/cashfree-order?order_id=${encodeURIComponent(orderId)}`);
 
 const currentYear = () => new Date().getFullYear();
 
@@ -179,8 +228,42 @@ const featureFlags = (plan: SubscriptionPlan) => ({
 const addCycle = (start: Date, billingCycle: BillingCycle) => {
   const end = new Date(start);
   if (billingCycle === 'Monthly') end.setMonth(end.getMonth() + 1);
+  else if (billingCycle === 'Quarterly') end.setMonth(end.getMonth() + 3);
+  else if (billingCycle === 'Half-Yearly') end.setMonth(end.getMonth() + 6);
   else end.setFullYear(end.getFullYear() + 1);
   return end;
+};
+
+const sanitizeStorageName = (value: string) => value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').slice(0, 96);
+
+const uploadPaymentProof = async (params: { firmId: string; userId: string; referenceNumber: string; file: File }) => {
+  const fileExt = params.file.name.split('.').pop() || 'png';
+  const path = `${params.firmId}/${params.referenceNumber}-${params.userId}-${Date.now()}.${sanitizeStorageName(fileExt)}`;
+  const { error: uploadError } = await supabase.storage
+    .from('subscription-payment-proofs')
+    .upload(path, params.file, {
+      cacheControl: '3600',
+      contentType: params.file.type || 'image/png',
+      upsert: false,
+    });
+
+  if (uploadError) throw uploadError;
+  const { data, error: signedUrlError } = await supabase.storage
+    .from('subscription-payment-proofs')
+    .createSignedUrl(path, 60 * 60);
+  if (signedUrlError) throw signedUrlError;
+  return { path, url: data.signedUrl };
+};
+
+const signPaymentRequestScreenshots = async (requests: SubscriptionRequest[]) => {
+  return Promise.all(requests.map(async (request) => {
+    if (!request.screenshot_path) return request;
+    const { data, error } = await supabase.storage
+      .from('subscription-payment-proofs')
+      .createSignedUrl(request.screenshot_path, 60 * 60);
+    if (error) return request;
+    return { ...request, screenshot_url: data.signedUrl };
+  }));
 };
 
 export const generateSubscriptionRequestReference = async () => {
@@ -235,6 +318,13 @@ export const getPlatformSettings = async (): Promise<PlatformSettings> => {
 
 export const savePlatformSettings = async (settings: Partial<PlatformSettings>, user: User) => {
   if (user.role !== 'GodAdmin') throw new Error('Only GodAdmin can update platform settings.');
+  const validationError = firstValidationError(
+    settings.company_name === undefined ? { valid: true } : validateRequiredName(settings.company_name || '', 'Company name'),
+    settings.company_gstin === undefined ? { valid: true } : validateGSTIN(settings.company_gstin || '', false),
+    settings.subscription_contact_email === undefined ? { valid: true } : validateEmail(settings.subscription_contact_email || '', false),
+    settings.subscription_contact_phone === undefined ? { valid: true } : validateIndianMobile(settings.subscription_contact_phone || '', false),
+  );
+  if (validationError) throw new Error(validationError);
   const { data, error } = await supabase
     .from('platform_settings')
     .upsert([{ id: true, ...settings, updated_at: new Date().toISOString() }])
@@ -261,12 +351,12 @@ export const getFirmSubscription = async (firmId: string): Promise<Subscription 
 export const listSubscriptionRequests = async (firmId?: string) => {
   let query = supabase
     .from('subscription_requests')
-    .select('*, firm:firms(name, firm_name, gstin)')
+    .select('*, firm:firms(name, firm_name, gstin), gateway:payment_gateway_orders!subscription_requests_fk_gateway_order(status, provider_order_id, provider_payment_id, paid_at)')
     .order('created_at', { ascending: false });
   if (firmId) query = query.eq('firm_id', firmId);
   const { data, error } = await query;
   if (error) throw error;
-  return (data || []) as SubscriptionRequest[];
+  return signPaymentRequestScreenshots((data || []) as SubscriptionRequest[]);
 };
 
 export const listSubscriptionInvoices = async (firmId?: string) => {
@@ -285,13 +375,23 @@ export const submitSubscriptionRequest = async (params: {
   plan: SubscriptionPlan;
   billingCycle: BillingCycle;
   utrNumber: string;
+  screenshotFile: File;
 }) => {
   if (params.user.role !== 'SuperAdmin') throw new Error('Only SuperAdmin can request subscription activation.');
   if (!params.user.firmId) throw new Error('A workspace is required to request activation.');
   if (!params.utrNumber.trim()) throw new Error('Transaction Reference Number (UTR) is required.');
+  if (!params.screenshotFile) throw new Error('Payment screenshot is required.');
+  if (!params.screenshotFile.type.startsWith('image/')) throw new Error('Please upload a valid image screenshot.');
+  if (params.screenshotFile.size > 5 * 1024 * 1024) throw new Error('Screenshot must be 5 MB or smaller.');
 
   const referenceNumber = await generateSubscriptionRequestReference();
   const totals = calculateSubscriptionTotals(params.plan, params.billingCycle);
+  const proof = await uploadPaymentProof({
+    firmId: params.user.firmId,
+    userId: params.user.id,
+    referenceNumber,
+    file: params.screenshotFile,
+  });
 
   const { data, error } = await supabase
     .from('subscription_requests')
@@ -304,6 +404,8 @@ export const submitSubscriptionRequest = async (params: {
       gst_amount: totals.gstAmount,
       total_amount: totals.totalAmount,
       utr_number: params.utrNumber.trim(),
+      screenshot_url: proof.url,
+      screenshot_path: proof.path,
       status: 'Pending Verification',
       created_by: params.user.id,
       updated_by: params.user.id,
@@ -451,61 +553,75 @@ const writeAudit = async (user: User, params: { firmId?: string | null; action: 
   }]);
 };
 
-export const approveSubscriptionRequest = async (request: SubscriptionRequest, actor: User) => {
-  if (actor.role !== 'GodAdmin') throw new Error('Only GodAdmin can approve subscription requests.');
-  const startDate = new Date();
-  const endDate = addCycle(startDate, request.billing_cycle);
-  const subscription = await upsertActiveSubscription({
-    firmId: request.firm_id,
-    plan: request.plan,
-    billingCycle: request.billing_cycle,
-    amount: request.amount,
-    actor,
-    startDate,
-    endDate,
+const describeSubscriptionError = (error: unknown) => {
+  if (!error || typeof error !== 'object') return String(error || 'Subscription activation failed.');
+  const candidate = error as { message?: string; details?: string; hint?: string; code?: string };
+  return [candidate.message, candidate.details, candidate.hint, candidate.code ? `Code: ${candidate.code}` : null]
+    .filter(Boolean)
+    .join(' ');
+};
+
+const activatePaidSubscriptionAtomic = async (params: {
+  firmId: string;
+  plan: SubscriptionPlan;
+  billingCycle: BillingCycle;
+  amount: number;
+  gstAmount: number;
+  totalAmount: number;
+  utrNumber?: string | null;
+  requestId?: string | null;
+  paymentMethod: 'Manual' | 'Cashfree';
+}) => {
+  const { data, error } = await supabase.rpc('activate_paid_subscription', {
+    p_firm_id: params.firmId,
+    p_plan: params.plan,
+    p_billing_cycle: params.billingCycle,
+    p_amount: params.amount,
+    p_gst_amount: params.gstAmount,
+    p_total_amount: params.totalAmount,
+    p_utr_number: params.utrNumber || null,
+    p_request_id: params.requestId || null,
+    p_payment_method: params.paymentMethod,
   });
 
-  const invoice = await createSubscriptionInvoice({
+  if (error) throw new Error(describeSubscriptionError(error));
+  const result = (Array.isArray(data) ? data[0] : data) as {
+    subscription_id?: string;
+    invoice_id?: string;
+  } | null;
+  if (!result?.subscription_id || !result.invoice_id) {
+    throw new Error('Activation completed without returning the subscription and invoice IDs.');
+  }
+
+  const [subscriptionResult, invoiceResult] = await Promise.all([
+    supabase.from('subscriptions').select('*').eq('id', result.subscription_id).single(),
+    supabase.from('subscription_invoices').select('*').eq('id', result.invoice_id).single(),
+  ]);
+  if (subscriptionResult.error) throw new Error(describeSubscriptionError(subscriptionResult.error));
+  if (invoiceResult.error) throw new Error(describeSubscriptionError(invoiceResult.error));
+  return {
+    subscription: subscriptionResult.data as Subscription,
+    invoice: invoiceResult.data as SubscriptionInvoice,
+  };
+};
+
+export const approveSubscriptionRequest = async (request: SubscriptionRequest, actor: User) => {
+  if (actor.role !== 'GodAdmin') throw new Error('Only GodAdmin can approve subscription requests.');
+  if (request.payment_provider === 'Cashfree' && request.gateway?.status !== 'PAID') {
+    throw new Error('Cashfree has not verified this payment as paid. Activation is blocked.');
+  }
+  const result = await activatePaidSubscriptionAtomic({
     firmId: request.firm_id,
-    subscriptionId: subscription.id,
     plan: request.plan,
     billingCycle: request.billing_cycle,
     amount: request.amount,
     gstAmount: request.gst_amount,
     totalAmount: request.total_amount,
     utrNumber: request.utr_number,
-    startDate,
-    endDate,
+    requestId: request.id,
+    paymentMethod: request.payment_provider === 'Cashfree' ? 'Cashfree' : 'Manual',
   });
-
-  const { error } = await supabase
-    .from('subscription_requests')
-    .update({
-      status: 'Approved',
-      updated_by: actor.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', request.id);
-  if (error) throw error;
-
-  await createNotification({
-    firmId: request.firm_id,
-    audienceRole: 'SuperAdmin',
-    title: 'Subscription activated',
-    message: 'Your CAATH PMS subscription has been activated.',
-    priority: 'HIGH',
-    user: actor,
-  });
-
-  await writeAudit(actor, {
-    firmId: request.firm_id,
-    action: 'Subscription Request Approved',
-    entityType: 'SubscriptionRequest',
-    entityId: request.id,
-    details: `Approved ${request.reference_number} and generated invoice ${invoice.invoice_number}.`,
-  });
-
-  return { subscription, invoice };
+  return result;
 };
 
 export const rejectSubscriptionRequest = async (request: SubscriptionRequest, remarks: string, actor: User) => {
@@ -555,37 +671,17 @@ export const manuallyActivateSubscription = async (params: {
 }) => {
   if (params.actor.role !== 'GodAdmin') throw new Error('Only GodAdmin can manually activate subscriptions.');
   const totals = calculateSubscriptionTotals(params.plan, params.billingCycle);
-  const startDate = new Date();
-  const endDate = addCycle(startDate, params.billingCycle);
-  const subscription = await upsertActiveSubscription({
+  return activatePaidSubscriptionAtomic({
     firmId: params.firmId,
-    plan: params.plan,
-    billingCycle: params.billingCycle,
-    amount: totals.amount,
-    actor: params.actor,
-    startDate,
-    endDate,
-  });
-  const invoice = await createSubscriptionInvoice({
-    firmId: params.firmId,
-    subscriptionId: subscription.id,
     plan: params.plan,
     billingCycle: params.billingCycle,
     amount: totals.amount,
     gstAmount: totals.gstAmount,
     totalAmount: totals.totalAmount,
     utrNumber: params.utrNumber,
-    startDate,
-    endDate,
+    requestId: null,
+    paymentMethod: 'Manual',
   });
-  await writeAudit(params.actor, {
-    firmId: params.firmId,
-    action: 'Manual Subscription Activation',
-    entityType: 'Subscription',
-    entityId: subscription.id,
-    details: `Manual ${params.plan} ${params.billingCycle} subscription activated. Invoice ${invoice.invoice_number}.`,
-  });
-  return { subscription, invoice };
 };
 
 export const hasFeatureAccess = async (firmId: string, feature: string): Promise<boolean> => {

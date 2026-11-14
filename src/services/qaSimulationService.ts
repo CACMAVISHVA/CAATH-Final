@@ -31,6 +31,7 @@ export interface QaSimulationReport {
     escalationEvents: number;
     reassignmentEvents: number;
     notificationEvents: number;
+    supportTicketEvents: number;
   };
 }
 
@@ -71,16 +72,56 @@ const addCheck = (condition: boolean, failIssue: QaIssue, issues: QaIssue[]) => 
   if (!condition) issues.push(failIssue);
 };
 
+const notificationSignature = (notification: {
+  recipient_user_id?: string | null;
+  audience_role?: string | null;
+  title: string;
+  message: string;
+  created_at: string;
+}) => `${notification.recipient_user_id || 'role:' + notification.audience_role}|${notification.title}|${notification.message}|${new Date(notification.created_at).toISOString().slice(0, 16)}`;
+
+export const archiveDuplicateNotifications = async (firmId: string): Promise<number> => {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('id, recipient_user_id, audience_role, title, message, created_at')
+    .eq('firm_id', firmId)
+    .neq('status', 'ARCHIVED')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+
+  const seen = new Set<string>();
+  const duplicateIds: string[] = [];
+  (data || []).forEach((notification) => {
+    const signature = notificationSignature(notification);
+    if (seen.has(signature)) duplicateIds.push(notification.id);
+    else seen.add(signature);
+  });
+  if (duplicateIds.length === 0) return 0;
+
+  const { data: archivedRows, error: archiveError } = await supabase
+    .from('notifications')
+    .update({ status: 'ARCHIVED' })
+    .in('id', duplicateIds)
+    .select('id');
+  if (archiveError) throw archiveError;
+  if ((archivedRows || []).length !== duplicateIds.length) {
+    throw new Error('Some duplicate notifications could not be archived. Check workspace permissions.');
+  }
+  return archivedRows?.length || 0;
+};
+
 export const runEnterpriseQaSimulation = async (firmId: string, user: User): Promise<QaSimulationReport> => {
   const issues: QaIssue[] = [];
 
-  const [tasksRes, usersRes, reassignRes, activityRes, approvalRes, notificationRes, traceRes] = await Promise.all([
+  const [tasksRes, usersRes, reassignRes, activityRes, approvalRes, notificationRes, supportTicketsRes, traceRes] = await Promise.all([
     supabase.from('tasks').select('id, assigned_to, status, deadline, updated_at, created_by').eq('firm_id', firmId),
     supabase.from('users').select('id, role, firm_id, status, name').eq('firm_id', firmId),
     supabase.from('task_reassignments').select('id, task_id, reassigned_by, new_assignee, previous_assignee, created_at').eq('firm_id', firmId).order('created_at', { ascending: false }).limit(300),
     supabase.from('task_activities').select('id, task_id, activity_type, previous_value, new_value, user_role, created_at').order('created_at', { ascending: false }).limit(500),
     supabase.from('approval_tasks').select('id, status, workflow_stage, assigned_to, rework_owner, created_by, approved_by').eq('firm_id', firmId).order('created_at', { ascending: false }).limit(300),
-    supabase.from('notifications').select('id, recipient_user_id, audience_role, title, message, created_at, firm_id').eq('firm_id', firmId).order('created_at', { ascending: false }).limit(500),
+    supabase.from('notifications').select('id, recipient_user_id, audience_role, title, message, status, created_at, firm_id').eq('firm_id', firmId).neq('status', 'ARCHIVED').order('created_at', { ascending: false }).limit(500),
+    supabase.from('support_tickets').select('id, subject, description, status, priority, created_by, created_at, updated_at').eq('firm_id', firmId).order('updated_at', { ascending: false }).limit(300),
     supabase.from('enterprise_activities').select('id, event_type, event_subtype').eq('firm_id', firmId).order('created_at', { ascending: false }).limit(500),
   ]);
 
@@ -90,6 +131,7 @@ export const runEnterpriseQaSimulation = async (firmId: string, user: User): Pro
   if (activityRes.error) throw activityRes.error;
   if (approvalRes.error) throw approvalRes.error;
   if (notificationRes.error) throw notificationRes.error;
+  if (supportTicketsRes.error) throw supportTicketsRes.error;
   if (traceRes.error) throw traceRes.error;
 
   const tasks = tasksRes.data || [];
@@ -98,6 +140,7 @@ export const runEnterpriseQaSimulation = async (firmId: string, user: User): Pro
   const activities = (activityRes.data || []).filter((a) => tasks.some((t) => t.id === a.task_id));
   const approvals = approvalRes.data || [];
   const notifications = notificationRes.data || [];
+  const supportTickets = supportTicketsRes.data || [];
   const traces = traceRes.data || [];
 
   const userMap = new Map(users.map((u) => [u.id, u]));
@@ -188,7 +231,7 @@ export const runEnterpriseQaSimulation = async (firmId: string, user: User): Pro
         referenceId: n.id,
       }, issues);
     }
-    const signature = `${n.recipient_user_id || 'role:' + n.audience_role}|${n.title}|${n.message}|${new Date(n.created_at).toISOString().slice(0, 16)}`;
+    const signature = notificationSignature(n);
     if (notifSignature.has(signature)) {
       issues.push({
         area: 'notification',
@@ -199,6 +242,27 @@ export const runEnterpriseQaSimulation = async (firmId: string, user: User): Pro
     } else {
       notifSignature.add(signature);
     }
+  });
+
+  supportTickets.forEach((ticket) => {
+    addCheck(Boolean(ticket.subject?.trim()), {
+      area: 'governance',
+      severity: 'medium',
+      message: 'Support ticket is missing a subject.',
+      referenceId: ticket.id,
+    }, issues);
+    addCheck(Boolean(ticket.created_by), {
+      area: 'governance',
+      severity: 'high',
+      message: 'Support ticket is missing its reporting user.',
+      referenceId: ticket.id,
+    }, issues);
+    addCheck(Boolean(ticket.updated_at), {
+      area: 'workflow',
+      severity: 'medium',
+      message: 'Support ticket is missing an update timestamp.',
+      referenceId: ticket.id,
+    }, issues);
   });
 
   if (user.role === 'Staff') {
@@ -212,7 +276,7 @@ export const runEnterpriseQaSimulation = async (firmId: string, user: User): Pro
 
   const summary: QaSummary = {
     timestamp: new Date().toISOString(),
-    checksRun: tasks.length + reassignments.length + approvals.length + notifications.length,
+    checksRun: tasks.length + reassignments.length + approvals.length + notifications.length + supportTickets.length,
     passed: 0,
     failed: issues.length,
   };
@@ -244,7 +308,7 @@ export const runEnterpriseQaSimulation = async (firmId: string, user: User): Pro
       escalationEvents: traces.filter((t) => String(t.event_subtype || '').includes('escalat')).length,
       reassignmentEvents: traces.filter((t) => t.event_type === 'reassignment').length,
       notificationEvents: traces.filter((t) => t.event_type === 'notification').length,
+      supportTicketEvents: traces.filter((t) => t.event_type === 'support_ticket').length,
     },
   };
 };
-

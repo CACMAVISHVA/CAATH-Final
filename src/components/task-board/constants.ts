@@ -25,6 +25,7 @@ export const ALL_STATUS_OPTIONS: TaskStatus[] = [
 
 export const normalizeStatusForColumns = (status: TaskStatus): TaskStatus => {
   if (status === 'Todo') return 'Created';
+  if (status === 'Accepted') return 'Assigned';
   if (status === 'Review') return 'Under Review';
   if (status === 'Reassigned') return 'Assigned';
   if (status === 'Archived') return 'Completed';

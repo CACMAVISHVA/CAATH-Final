@@ -8,8 +8,16 @@ export interface DocumentIntelligenceDashboardSummary {
   highRiskComplianceDocuments: number;
 }
 
+const emptyDocumentSummary: DocumentIntelligenceDashboardSummary = {
+  unresolvedNotices: 0,
+  processingBacklog: 0,
+  extractionFailures: 0,
+  overdueDocumentWorkflows: 0,
+  highRiskComplianceDocuments: 0,
+};
+
 export const getDocumentIntelligenceDashboardSummary = async (firmId: string): Promise<DocumentIntelligenceDashboardSummary> => {
-  const [documentsRes, noticesRes] = await Promise.all([
+  const [documentsRes, noticesRes] = await Promise.allSettled([
     supabase
       .from('document_vault')
       .select('id, category, document_type, tags, linked_notice_id, created_at')
@@ -19,13 +27,17 @@ export const getDocumentIntelligenceDashboardSummary = async (firmId: string): P
       .from('notices')
       .select('id, status, deadline')
       .eq('firm_id', firmId),
-  ]);
+  ] as const);
 
-  if (documentsRes.error) throw documentsRes.error;
-  if (noticesRes.error) throw noticesRes.error;
+  const documents = documentsRes.status === 'fulfilled' && !documentsRes.value.error
+    ? documentsRes.value.data || []
+    : (console.warn('[AUTH] Optional document intelligence module unavailable: document_vault', documentsRes.status === 'rejected' ? documentsRes.reason : documentsRes.value.error), []);
+  const notices = noticesRes.status === 'fulfilled' && !noticesRes.value.error
+    ? noticesRes.value.data || []
+    : (console.warn('[AUTH] Optional document intelligence module unavailable: notices', noticesRes.status === 'rejected' ? noticesRes.reason : noticesRes.value.error), []);
 
-  const documents = documentsRes.data || [];
-  const notices = noticesRes.data || [];
+  if (!documents.length && !notices.length) return emptyDocumentSummary;
+
   const now = new Date();
   const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
 
@@ -51,4 +63,3 @@ export const getDocumentIntelligenceDashboardSummary = async (firmId: string): P
     highRiskComplianceDocuments,
   };
 };
-

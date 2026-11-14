@@ -45,6 +45,7 @@ import {
   openOfficialPortal,
   recordGovernmentPortalAccess,
 } from '../services/governmentPortalService';
+import { launchPortalWithAutofill } from '../services/portals/portalAssistService';
 import { useClientProfileData } from '../hooks/useClientProfileData';
 import { playSound } from '../services/soundService';
 import {
@@ -55,6 +56,7 @@ import { generateComplianceInsights } from '../services/complianceAIService';
 import { AIInsightPanel } from './AIInsightPanel';
 import { ClientProfileStats } from './client-profile/ClientProfileStats';
 import { ClientProfileHeader } from './client-profile/ClientProfileHeader';
+import { PortalCredentialModal } from './PortalCredentialModal';
 
 const DocumentVault = lazy(() => import('./DocumentVault'));
 
@@ -110,6 +112,8 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
   const [portalCredentials, setPortalCredentials] = useState<PortalCredentialSummary[]>([]);
   const [portalLoading, setPortalLoading] = useState(false);
   const [copiedPortalField, setCopiedPortalField] = useState<string | null>(null);
+  const [portalAssistNotice, setPortalAssistNotice] = useState<string | null>(null);
+  const [credentialSetupPortal, setCredentialSetupPortal] = useState<typeof GOVERNMENT_PORTALS[number] | null>(null);
 
   const loadPortalCredentials = useCallback(async () => {
     if (!client) return;
@@ -134,9 +138,16 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
 
   const handleLaunchPortal = useCallback(async (credentialId: string) => {
     if (!user || !client || !canUsePortal) return;
+    const credential = portalCredentials.find((item) => item.id === credentialId);
+    const portal = GOVERNMENT_PORTALS.find((item) => item.type === credential?.portal_type);
+    if (credential && portal) {
+      const assisted = await launchPortalWithAutofill({ credentialId, portal, user });
+      setPortalAssistNotice(assisted.message);
+      if (assisted.launched) return;
+    }
     const result = await launchPortal(credentialId, user, client.id);
-    window.open(result.url, '_blank');
-  }, [canUsePortal, client, user]);
+    window.open(result.url, '_blank', 'noopener,noreferrer');
+  }, [canUsePortal, client, portalCredentials, user]);
 
   const handleOfficialPortalLaunch = useCallback(async (portalType: typeof GOVERNMENT_PORTALS[number]['type']) => {
     if (!user || !client) return;
@@ -188,9 +199,15 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
     [complianceSnapshot]
   );
 
+  const nextMissingPortal = useMemo(
+    () => GOVERNMENT_PORTALS.find((portal) => !portalCredentials.some((credential) => credential.portal_type === portal.type)) || null,
+    [portalCredentials],
+  );
+
   if (!isOpen || !client) return null;
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
@@ -568,6 +585,11 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
 
           {activeTab === 'portal' && (
             <div className="space-y-6">
+              {portalAssistNotice && (
+                <div role="status" className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+                  {portalAssistNotice}
+                </div>
+              )}
               {/* Portal Quick Launch Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {GOVERNMENT_PORTALS.map((portal) => {
@@ -647,7 +669,11 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
                   </h3>
                   <button
                     className="px-3 py-1.5 bg-gold text-matte-black rounded-lg text-xs font-bold flex items-center gap-1"
-                    onClick={() => playSound('click')}
+                    disabled={!nextMissingPortal}
+                    onClick={() => {
+                      playSound('click');
+                      setCredentialSetupPortal(nextMissingPortal);
+                    }}
                   >
                     <Plus className="w-3 h-3" />
                     Add Credential
@@ -734,6 +760,19 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
         </div>
       </div>
     </div>
+    {user && (
+      <PortalCredentialModal
+        client={client}
+        portal={credentialSetupPortal}
+        user={user}
+        onClose={() => setCredentialSetupPortal(null)}
+        onSaved={(credential) => {
+          setPortalCredentials((current) => [...current.filter((item) => item.portal_type !== credential.portal_type), credential]);
+          setPortalAssistNotice('Portal login saved securely. Use Launch Portal to fill the login screen.');
+        }}
+      />
+    )}
+    </>
   );
 };
 

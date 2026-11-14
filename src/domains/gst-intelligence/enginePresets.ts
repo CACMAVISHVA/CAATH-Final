@@ -37,7 +37,7 @@ export const GST_INTELLIGENCE_PRESETS: GSTIntelligencePreset[] = [
   {
     id: 'monthly-compliance-review',
     title: 'Monthly Compliance Review',
-    description: 'Standard CA monthly compliance operations workflow.',
+    description: 'Standard professional-practice monthly compliance workflow.',
     moduleIds: ids('filing-delay-analysis', 'return-consistency-check', 'late-fee-risk', 'filing-efficiency-metrics', 'ai-risk-prioritization'),
   },
   {

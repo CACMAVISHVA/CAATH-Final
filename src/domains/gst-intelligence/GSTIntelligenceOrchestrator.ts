@@ -16,6 +16,24 @@ const inferFrequency = (period: string): 'Monthly' | 'Quarterly' | 'Annual' => {
   return 'Monthly';
 };
 
+const MONTH_NUMBER: Record<string, number> = {
+  april: 4, may: 5, june: 6, july: 7, august: 8, september: 9,
+  october: 10, november: 11, december: 12, january: 1, february: 2, march: 3,
+};
+
+export const toGSTStoragePeriod = (financialYear: string, filingPeriod: string): string => {
+  const existingPeriod = filingPeriod.match(/\b(\d{4})-(0[1-9]|1[0-2])\b/);
+  if (existingPeriod) return existingPeriod[0];
+
+  const startYear = Number(financialYear.match(/FY\s+(\d{4})/i)?.[1]);
+  const monthName = Object.keys(MONTH_NUMBER).find((month) => filingPeriod.toLowerCase().includes(month));
+  if (!startYear || !monthName) return `${startYear || new Date().getFullYear()}-04`;
+
+  const month = MONTH_NUMBER[monthName];
+  const year = month >= 4 ? startYear : startYear + 1;
+  return `${year}-${String(month).padStart(2, '0')}`;
+};
+
 const buildClientProfile = (source: { clientId: string; clientName: string; gstin: string }, period: string): GSTClientProfileContext => {
   const pan = source.gstin.length >= 12 ? source.gstin.slice(2, 12) : 'Unavailable';
   return {
@@ -106,7 +124,7 @@ export const gstIntelligenceOrchestrator = {
     const snapshot = await getGSTOperationalIntelligenceSnapshot({
       firmId: user.firmId,
       selectedClientId: clientId,
-      selectedPeriod: filingPeriod,
+      selectedPeriod: toGSTStoragePeriod(financialYear, filingPeriod),
       selectedGSTIN: selectedClient.gstin,
     });
 
@@ -156,7 +174,19 @@ export const gstIntelligenceOrchestrator = {
         parser: 'gst_json_parser',
         normalizedSchema: 'gst.normalized.gstr3b.v1',
       },
-    ].filter((item) => item.records > 0);
+    ]
+      .filter((item) => item.records > 0)
+      .map((item) => ({
+        ...item,
+        valid: true,
+        errors: [],
+        warnings: [],
+        duplicateInvoices: 0,
+        taxableValue: 0,
+        taxAmount: 0,
+        gstins: [],
+        invoices: [],
+      }));
 
     const storageEnvelope = buildStorageEnvelope({
       tenantId: user.firmId,

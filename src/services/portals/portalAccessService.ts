@@ -22,12 +22,20 @@ export const revealPassword = async (
   credentialId: string,
   user: { id: string; name: string; role: string },
 ): Promise<string> => {
+  const result = await revealPortalCredential(credentialId, user);
+  return result.password;
+};
+
+export const revealPortalCredential = async (
+  credentialId: string,
+  user: { id: string; name: string; role: string },
+): Promise<{ credentialId: string; username: string; password: string }> => {
   assertPortalCredentialAccess(user);
   const result = await invokePortalSecrets<{ credentialId: string; username: string; password: string }>({
     action: 'reveal',
     credentialId,
   });
-  return result.password;
+  return result;
 };
 
 export const validatePortalAccess = async (

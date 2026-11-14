@@ -54,7 +54,10 @@ export const recordOperationalTelemetry = async (record: OperationalTelemetryRec
     },
   }]);
 
-  if (error) throw error;
+  if (error) {
+    console.warn('[AUTH] Optional telemetry module unavailable: enterprise_activities', error);
+    return null;
+  }
   return data?.[0];
 };
 
@@ -73,7 +76,10 @@ export const getTelemetryTrendSummary = async (
     .gte('created_at', from)
     .order('created_at', { ascending: true });
 
-  if (error) throw error;
+  if (error) {
+    console.warn('[AUTH] Optional telemetry module unavailable: enterprise_activities', error);
+    return { metric, points: [], total: 0 };
+  }
 
   const bucket: Record<string, number> = {};
   (data || []).forEach((row) => {

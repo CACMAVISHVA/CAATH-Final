@@ -43,7 +43,6 @@ import {
   getTaskActivities,
   getTaskComments,
   addTaskComment,
-  logTaskStatusChanged,
   logTaskPriorityChanged,
   logTaskDeadlineChanged,
 } from '../services/taskActivityService';
@@ -181,7 +180,6 @@ export const TaskDetailDrawer: React.FC<TaskDetailDrawerProps> = ({
     try {
       const previousStatus = task.status;
       await updateTaskStatus(task.id, newStatus, user);
-      await logTaskStatusChanged(task.id, user, previousStatus, newStatus);
       onTaskUpdated?.();
       loadTaskData();
     } catch (error) {

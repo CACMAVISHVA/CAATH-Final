@@ -174,11 +174,12 @@ Deno.serve(async (req: Request) => {
 
       const { data, error } = await admin
         .from("portal_credentials")
-        .select("id, firm_id, portal_type, portal_name, portal_url, username_masked, gstin, pan, cin, last_login, last_filing_date, assigned_to, credential_ref, created_at, updated_at")
+        .select("id, client_id, firm_id, portal_type, portal_name, portal_url, username_masked, gstin, pan, cin, last_login, last_filing_date, assigned_to, credential_ref, created_at, updated_at")
         .eq("firm_id", clientRow.firm_id)
+        .eq("client_id", clientId)
         .order("portal_name", { ascending: true });
       if (error) throw new SecurityError("Unable to list credentials.", 400, "QUERY_FAILED");
-      return json(200, { data: (data ?? []).map((row: Record<string, unknown>) => ({ ...row, client_id: clientId, username: row.username_masked })) });
+      return json(200, { data: (data ?? []).map((row: Record<string, unknown>) => ({ ...row, username: row.username_masked })) });
     }
 
     if (action === "create") {
@@ -251,7 +252,24 @@ Deno.serve(async (req: Request) => {
     assertTenant(existing.firm_id as string);
 
     if (action === "get") {
-      return json(200, { data: existing });
+      return json(200, {
+        data: {
+          id: existing.id,
+          client_id: existing.client_id,
+          firm_id: existing.firm_id,
+          portal_type: existing.portal_type,
+          portal_name: existing.portal_name,
+          portal_url: existing.portal_url,
+          username: existing.username_masked,
+          gstin: existing.gstin,
+          pan: existing.pan,
+          cin: existing.cin,
+          last_login: existing.last_login,
+          last_filing_date: existing.last_filing_date,
+          assigned_to: existing.assigned_to,
+          credential_ref: existing.credential_ref,
+        },
+      });
     }
 
     if (action === "update") {

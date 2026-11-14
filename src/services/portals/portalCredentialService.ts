@@ -6,6 +6,7 @@
 import { PortalCredentialInput, PortalCredentialSummary, PortalCredentialUpdatePayload, PortalCredential } from './portalTypes';
 import { invokePortalSecrets } from './portalSecretsClient';
 import { requireString, requireUuid, optionalString } from '../../security';
+import { firstValidationError, validateCinOrLlpin, validateGSTIN, validatePAN } from '../../lib/fieldValidation';
 
 const PORTAL_URLS: Record<string, string> = {
   GST: 'https://www.gst.gov.in/',
@@ -39,6 +40,12 @@ export const createPortalCredential = async (input: PortalCredentialInput): Prom
   requireString(input.portalName, 'portalName', 200);
   requireString(input.username, 'username', 256);
   requireString(input.password, 'password', 512);
+  const validationError = firstValidationError(
+    validateGSTIN(input.gstin || '', false),
+    validatePAN(input.pan || '', false),
+    validateCinOrLlpin(input.cin || '', false),
+  );
+  if (validationError) throw new Error(validationError);
 
   const portalUrl = getValidPortalUrl(input.portalUrl?.trim() || PORTAL_URLS[input.portalType] || '');
   return invokePortalSecrets<PortalCredentialSummary>({
@@ -87,6 +94,12 @@ export const updatePortalCredential = async (
   updates: PortalCredentialUpdatePayload,
 ): Promise<void> => {
   requireUuid(credentialId, 'credentialId');
+  const validationError = firstValidationError(
+    validateGSTIN(updates.gstin || '', false),
+    validatePAN(updates.pan || '', false),
+    validateCinOrLlpin(updates.cin || '', false),
+  );
+  if (validationError) throw new Error(validationError);
   const payload: Record<string, unknown> = { action: 'update', credentialId };
   if (updates.portalName !== undefined) payload.portalName = updates.portalName.trim();
   if (updates.portalUrl !== undefined) payload.portalUrl = getValidPortalUrl(updates.portalUrl.trim());

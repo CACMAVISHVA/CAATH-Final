@@ -26,6 +26,44 @@ const appendInsight = (insights: GSTAIInsight[], insight: GSTAIInsight) => {
   if (!insights.some((item) => item.id === insight.id)) insights.push(insight);
 };
 
+const invoiceKey = (invoice: { invoiceNumber: string; gstin: string }) => `${invoice.gstin}|${invoice.invoiceNumber}`;
+
+const reconcileInvoices = (
+  gstr2b: Array<{ invoiceNumber: string; gstin: string; taxableValue: number; taxAmount: number }>,
+  purchase: Array<{ invoiceNumber: string; gstin: string; taxableValue: number; taxAmount: number }>,
+) => {
+  const portal = new Map(gstr2b.map((invoice) => [invoiceKey(invoice), invoice]));
+  const books = new Map(purchase.map((invoice) => [invoiceKey(invoice), invoice]));
+  const duplicateKeys = (rows: typeof gstr2b) => {
+    const counts = new Map<string, number>();
+    rows.forEach((invoice) => counts.set(invoiceKey(invoice), (counts.get(invoiceKey(invoice)) || 0) + 1));
+    return [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key);
+  };
+  const missingInvoices: ReconciliationFinding[] = [];
+  const excessITCInvoices: ReconciliationFinding[] = [];
+  const vendorMismatches: ReconciliationFinding[] = [];
+  let matchedInvoices = 0;
+
+  books.forEach((bookInvoice, key) => {
+    const portalInvoice = portal.get(key);
+    if (!portalInvoice) {
+      missingInvoices.push({ invoiceKey: key, reason: 'Purchase-register invoice is absent from GSTR-2B.', severity: 'high' });
+      return;
+    }
+    const taxableDifference = Math.abs(bookInvoice.taxableValue - portalInvoice.taxableValue);
+    const taxDifference = Math.abs(bookInvoice.taxAmount - portalInvoice.taxAmount);
+    if (taxableDifference > 1 || taxDifference > 1) {
+      vendorMismatches.push({ invoiceKey: key, reason: `Value mismatch: taxable difference ${taxableDifference.toFixed(2)}, tax difference ${taxDifference.toFixed(2)}.`, severity: taxDifference > 100 ? 'high' : 'medium' });
+    } else matchedInvoices += 1;
+  });
+  portal.forEach((_, key) => {
+    if (!books.has(key)) excessITCInvoices.push({ invoiceKey: key, reason: 'GSTR-2B invoice is absent from the purchase register.', severity: 'medium' });
+  });
+  const duplicateInvoices = [...new Set([...duplicateKeys(gstr2b), ...duplicateKeys(purchase)])]
+    .map((key) => ({ invoiceKey: key, reason: 'Duplicate invoice number and GSTIN combination detected.', severity: 'high' as const }));
+  return { matchedInvoices, missingInvoices, excessITCInvoices, duplicateInvoices, vendorMismatches };
+};
+
 export const executeGSTIntelligence = (input: GSTIntelligenceExecutionInput): GSTIntelligenceExecutionResult => {
   const lineages = input.storageEnvelope?.lineage || [];
   const totalRecords = lineages.reduce((sum, item) => sum + item.records, 0);
@@ -34,6 +72,8 @@ export const executeGSTIntelligence = (input: GSTIntelligenceExecutionInput): GS
   const gstr1Records = lineages.find((item) => item.dataset === 'GSTR1_JSON')?.records || 0;
   const gstr3bRecords = lineages.find((item) => item.dataset === 'GSTR3B_JSON')?.records || 0;
   const vendorRecords = lineages.find((item) => item.dataset === 'VENDOR_MASTER')?.records || 0;
+  const gstr2bLineage = lineages.find((item) => item.dataset === 'GSTR2B_JSON');
+  const purchaseLineage = lineages.find((item) => item.dataset === 'PURCHASE_REGISTER');
 
   const reconciliationGap = Math.abs(gstr2bRecords - purchaseRecords);
   const matchedInvoices = Math.max(0, Math.min(gstr2bRecords, purchaseRecords) - Math.floor(reconciliationGap * 0.1));
@@ -42,16 +82,30 @@ export const executeGSTIntelligence = (input: GSTIntelligenceExecutionInput): GS
   const duplicateCount = Math.min(12, Math.floor(totalRecords / 450));
   const vendorMismatchCount = Math.min(15, Math.floor((reconciliationGap + vendorRecords) / 320));
 
-  const reconciliation = {
+  const estimatedReconciliation = {
     matchedInvoices,
     missingInvoices: buildReconciliationFindings(missingCount, 'missing-itc-invoice', severityFromGap(reconciliationGap)),
     excessITCInvoices: buildReconciliationFindings(excessCount, 'excess-itc-invoice', severityFromGap(reconciliationGap / 2)),
     duplicateInvoices: buildReconciliationFindings(duplicateCount, 'duplicate-invoice', duplicateCount > 6 ? 'high' : 'medium'),
     vendorMismatches: buildReconciliationFindings(vendorMismatchCount, 'vendor-mismatch', vendorMismatchCount > 8 ? 'high' : 'medium'),
   };
+  const reconciliation = gstr2bLineage?.invoices?.length && purchaseLineage?.invoices?.length
+    ? reconcileInvoices(gstr2bLineage.invoices, purchaseLineage.invoices)
+    : estimatedReconciliation;
 
-  const taxableTurnoverVariance = gstr3bRecords > 0 ? ((gstr1Records - gstr3bRecords) / gstr3bRecords) * 100 : 0;
-  const liabilityVariance = gstr1Records > 0 ? ((gstr3bRecords - gstr1Records) / gstr1Records) * 100 : 0;
+  const actualMissingCount = reconciliation.missingInvoices.length;
+  const actualExcessCount = reconciliation.excessITCInvoices.length;
+  const actualDuplicateCount = reconciliation.duplicateInvoices.length;
+  const actualVendorMismatchCount = reconciliation.vendorMismatches.length;
+
+  const gstr1Lineage = lineages.find((item) => item.dataset === 'GSTR1_JSON');
+  const gstr3bLineage = lineages.find((item) => item.dataset === 'GSTR3B_JSON');
+  const taxableTurnoverVariance = gstr3bLineage?.taxableValue
+    ? ((Number(gstr1Lineage?.taxableValue || 0) - gstr3bLineage.taxableValue) / gstr3bLineage.taxableValue) * 100
+    : gstr3bRecords > 0 ? ((gstr1Records - gstr3bRecords) / gstr3bRecords) * 100 : 0;
+  const liabilityVariance = gstr1Lineage?.taxAmount
+    ? ((Number(gstr3bLineage?.taxAmount || 0) - gstr1Lineage.taxAmount) / gstr1Lineage.taxAmount) * 100
+    : gstr1Records > 0 ? ((gstr3bRecords - gstr1Records) / gstr1Records) * 100 : 0;
   const discrepancyFlags = [
     ...buildReconciliationFindings(Math.max(0, Math.floor(Math.abs(taxableTurnoverVariance) / 4)), 'turnover-variance', severityFromGap(Math.abs(taxableTurnoverVariance))),
     ...buildReconciliationFindings(Math.max(0, Math.floor(Math.abs(liabilityVariance) / 4)), 'liability-variance', severityFromGap(Math.abs(liabilityVariance))),
@@ -63,12 +117,12 @@ export const executeGSTIntelligence = (input: GSTIntelligenceExecutionInput): GS
     discrepancyFlags,
   };
 
-  const fakeInvoiceIndicators = Math.min(20, duplicateCount + Math.floor(vendorMismatchCount / 2));
+  const fakeInvoiceIndicators = Math.min(20, actualDuplicateCount + Math.floor(actualVendorMismatchCount / 2));
   const circularTradingIndicators = Math.min(15, Math.floor(reconciliationGap / 250));
-  const vendorRiskScore = clamp(100 - fakeInvoiceIndicators * 3 - circularTradingIndicators * 4 - vendorMismatchCount * 2);
+  const vendorRiskScore = clamp(100 - fakeInvoiceIndicators * 3 - circularTradingIndicators * 4 - actualVendorMismatchCount * 2);
   const vendorRisk = {
     score: vendorRiskScore,
-    highRiskVendors: Array.from({ length: Math.min(5, vendorMismatchCount) }).map((_, index) => ({
+    highRiskVendors: Array.from({ length: Math.min(5, actualVendorMismatchCount) }).map((_, index) => ({
       vendorName: `Vendor ${index + 1}`,
       riskScore: clamp(78 - index * 8 - circularTradingIndicators),
       reason: 'Filing inconsistency and mismatch-heavy ITC exposure.',
@@ -79,27 +133,27 @@ export const executeGSTIntelligence = (input: GSTIntelligenceExecutionInput): GS
 
   const scrutinyTriggers: string[] = [];
   if (Math.abs(taxableTurnoverVariance) > 12) scrutinyTriggers.push('Taxable turnover variance above monitoring threshold.');
-  if (missingCount > 8) scrutinyTriggers.push('Missing ITC invoices exceed risk tolerance.');
+  if (actualMissingCount > 8) scrutinyTriggers.push('Missing ITC invoices exceed risk tolerance.');
   if (vendorRiskScore < 65) scrutinyTriggers.push('Vendor compliance confidence below controlled range.');
 
-  const refundRiskScore = clamp(55 + excessCount * 2 + (Math.abs(liabilityVariance) > 10 ? 10 : 0));
+  const refundRiskScore = clamp(55 + actualExcessCount * 2 + (Math.abs(liabilityVariance) > 10 ? 10 : 0));
   const auditRiskScore = clamp(100 - (scrutinyTriggers.length * 12 + fakeInvoiceIndicators * 2 + Math.floor(Math.abs(taxableTurnoverVariance))));
   const auditRisk = {
     auditRiskScore,
     scrutinyTriggers,
     refundRiskScore,
     complianceWeaknesses: [
-      missingCount > 0 ? 'ITC traceability gaps detected.' : '',
-      duplicateCount > 0 ? 'Duplicate invoice clusters require review.' : '',
+      actualMissingCount > 0 ? 'ITC traceability gaps detected.' : '',
+      actualDuplicateCount > 0 ? 'Duplicate invoice clusters require review.' : '',
       Math.abs(taxableTurnoverVariance) > 8 ? 'GSTR-1 and GSTR-3B variance observed.' : '',
     ].filter(Boolean),
   };
 
-  const anomalyScore = clamp(100 - (missingCount * 2 + duplicateCount * 5 + Math.floor(Math.abs(taxableTurnoverVariance))));
+  const anomalyScore = clamp(100 - (actualMissingCount * 2 + actualDuplicateCount * 5 + Math.floor(Math.abs(taxableTurnoverVariance))));
   const anomalies = {
     anomalyScore,
     anomalies: [
-      ...buildReconciliationFindings(Math.min(3, duplicateCount), 'invoice-anomaly', duplicateCount > 6 ? 'high' : 'medium').map((item, idx) => ({
+      ...buildReconciliationFindings(Math.min(3, actualDuplicateCount), 'invoice-anomaly', actualDuplicateCount > 6 ? 'high' : 'medium').map((item, idx) => ({
         code: `INV-${idx + 1}`,
         summary: item.reason,
         severity: item.severity,
@@ -113,27 +167,27 @@ export const executeGSTIntelligence = (input: GSTIntelligenceExecutionInput): GS
   };
 
   const riskScores = {
-    compliance: clamp(input.baselineScores.compliance - missingCount - Math.floor(Math.abs(taxableTurnoverVariance))),
-    itcRisk: clamp(100 - missingCount * 3 - excessCount * 2 - duplicateCount * 4),
+    compliance: clamp(input.baselineScores.compliance - actualMissingCount - Math.floor(Math.abs(taxableTurnoverVariance))),
+    itcRisk: clamp(100 - actualMissingCount * 3 - actualExcessCount * 2 - actualDuplicateCount * 4),
     vendorRisk: vendorRiskScore,
     auditExposure: auditRiskScore,
     operationalRisk: clamp(input.baselineScores.operationalEfficiency - scrutinyTriggers.length * 8 - Math.floor(totalRecords / 1200)),
   };
 
   const workflowActions = [
-    ...(missingCount > 0 ? [{
+    ...(actualMissingCount > 0 ? [{
       id: 'gst-reconciliation-review',
       title: 'Review missing ITC invoices',
-      priority: missingCount > 12 ? 'high' as const : 'medium' as const,
+      priority: actualMissingCount > 12 ? 'high' as const : 'medium' as const,
       actionType: 'task' as const,
-      reason: `${missingCount} missing ITC-linked invoices require reconciliation action.`,
+      reason: `${actualMissingCount} missing ITC-linked invoices require reconciliation action.`,
     }] : []),
-    ...(vendorMismatchCount > 0 ? [{
+    ...(actualVendorMismatchCount > 0 ? [{
       id: 'vendor-risk-escalation',
       title: 'Escalate vendor mismatch cluster',
-      priority: vendorMismatchCount > 8 ? 'high' as const : 'medium' as const,
+      priority: actualVendorMismatchCount > 8 ? 'high' as const : 'medium' as const,
       actionType: 'escalation' as const,
-      reason: `${vendorMismatchCount} vendor mismatch indicators detected.`,
+      reason: `${actualVendorMismatchCount} vendor mismatch indicators detected.`,
     }] : []),
     ...(scrutinyTriggers.length > 0 ? [{
       id: 'audit-prep-review',
@@ -155,17 +209,17 @@ export const executeGSTIntelligence = (input: GSTIntelligenceExecutionInput): GS
   appendInsight(aiInsights, {
     id: 'gst-reconciliation-summary',
     title: 'AI reconciliation narrative',
-    summary: `ITC exposure is ${missingCount > 10 ? 'elevated' : 'moderate'} with ${missingCount} unmatched invoice(s).`,
+    summary: `ITC exposure is ${actualMissingCount > 10 ? 'elevated' : 'moderate'} with ${actualMissingCount} unmatched invoice(s).`,
     recommendation: 'Prioritize missing ITC and vendor mismatch workflows before filing closure.',
-    priority: missingCount > 10 ? 'high' : 'medium',
+    priority: actualMissingCount > 10 ? 'high' : 'medium',
     governanceNote: 'Generated from normalized datasets with auditable lineage and confidence controls.',
   });
   appendInsight(aiInsights, {
     id: 'gst-vendor-risk-summary',
     title: 'AI vendor risk trend',
-    summary: `${vendorMismatchCount} vendor mismatch indicator(s) and ${fakeInvoiceIndicators} fake-invoice signal(s) detected.`,
+    summary: `${actualVendorMismatchCount} vendor mismatch indicator(s) and ${fakeInvoiceIndicators} fake-invoice signal(s) detected.`,
     recommendation: 'Run vendor compliance review and suspend high-risk ITC dependencies until cleared.',
-    priority: vendorMismatchCount > 8 ? 'high' : 'medium',
+    priority: actualVendorMismatchCount > 8 ? 'high' : 'medium',
     governanceNote: 'Recommendation is permission-aware and requires operational approval for escalations.',
   });
 

@@ -141,7 +141,7 @@ export const authService = {
       console.warn('[AUTH] Logout requested by src/domains/auth/services/authService.ts:135 (explicit logout)');
       await authRepository.signOut();
     });
-    await auditAuthEvent('logout', userId, { timestamp: new Date().toISOString() });
+    void auditAuthEvent('logout', userId, { timestamp: new Date().toISOString() });
   },
 
   async getSession() {
@@ -166,7 +166,7 @@ export const authService = {
   async updatePassword(password: string): Promise<void> {
     try {
       await authRepository.updatePassword(password);
-      await auditAuthEvent('password_reset', undefined, { timestamp: new Date().toISOString(), stage: 'updated' });
+      void auditAuthEvent('password_reset', undefined, { timestamp: new Date().toISOString(), stage: 'updated' });
     } catch (error) {
       const safeError = normalizeAuthError(error);
       await auditAuthEvent('password_reset', undefined, { errorCode: safeError.code, timestamp: new Date().toISOString(), stage: 'update_failed' });

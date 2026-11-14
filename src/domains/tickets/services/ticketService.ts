@@ -51,6 +51,8 @@ export const ticketService = {
       updatedAt: now,
     };
 
+    await repository.createTicket(ticket);
+
     await logEnterpriseActivity({
       firm_id: params.user.firmId,
       event_type: TICKET_EVENT_TYPE,
@@ -95,6 +97,8 @@ export const ticketService = {
       escalationState: params.escalationState || ticket.escalationState,
       updatedAt: new Date().toISOString(),
     };
+
+    await repository.updateTicket(updated);
 
     await logEnterpriseActivity({
       firm_id: params.user.firmId,

@@ -37,6 +37,7 @@ import { ModalLoader } from './loaders/ModalLoader';
 import { ClientGovernanceSidebar } from './client-domain/ClientGovernanceSidebar';
 import { Modal } from './Modal';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
+import { clearFormDraft, readFormDraft, saveFormDraft } from '../lib/formDraftStorage';
 
 const ClientProfile = lazy(() => import('./ClientProfile'));
 
@@ -62,6 +63,23 @@ interface ClientFormData {
   services: string[];
 }
 
+const DEFAULT_CLIENT_FORM: ClientFormData = {
+  name: '',
+  type: '',
+  pan: '',
+  gstin: '',
+  tan: '',
+  cinLlpin: '',
+  portalUsername: '',
+  email: '',
+  phone: '',
+  services: [],
+};
+
+const hasClientDraftData = (value: ClientFormData) => Object.entries(value).some(([, field]) =>
+  Array.isArray(field) ? field.length > 0 : Boolean(String(field).trim()),
+);
+
 export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: string[] }> = ({ assignedOnly, assignedClients }) => {
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
@@ -73,34 +91,13 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
   const [uploading, setUploading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [draftNotice, setDraftNotice] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState<ClientFormData>({
-    name: '',
-    type: '',
-    pan: '',
-    gstin: '',
-    tan: '',
-    cinLlpin: '',
-    portalUsername: '',
-    email: '',
-    phone: '',
-    services: [],
-  });
-  const defaultClientForm: ClientFormData = {
-    name: '',
-    type: '',
-    pan: '',
-    gstin: '',
-    tan: '',
-    cinLlpin: '',
-    portalUsername: '',
-    email: '',
-    phone: '',
-    services: [],
-  };
+  const [formData, setFormData] = useState<ClientFormData>(DEFAULT_CLIENT_FORM);
+  const clientDraftKey = user?.id && user.firmId ? `caath:draft:client:new:${user.firmId}:${user.id}` : null;
   const hasUnsavedClientChanges = (() => {
     if (showAddClient) {
-      return JSON.stringify(formData) !== JSON.stringify(defaultClientForm);
+      return JSON.stringify(formData) !== JSON.stringify(DEFAULT_CLIENT_FORM);
     }
     if (editClient) {
       return (
@@ -114,7 +111,23 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   })();
   const guardClientModalClose = useUnsavedChangesGuard(hasUnsavedClientChanges);
 
+  const canManageClients = user?.role === 'SuperAdmin' || user?.role === 'Admin';
   const allowClientDelete = canDeleteClient(user);
+
+  useEffect(() => {
+    if (!clientDraftKey) return;
+    const restored = readFormDraft<ClientFormData>(clientDraftKey);
+    if (!restored || !hasClientDraftData(restored)) return;
+    setFormData({ ...DEFAULT_CLIENT_FORM, ...restored, services: Array.isArray(restored.services) ? restored.services : [] });
+    setShowAddClient(true);
+    setDraftNotice('Your unfinished client entry was recovered automatically.');
+  }, [clientDraftKey]);
+
+  useEffect(() => {
+    if (!clientDraftKey || !showAddClient || !hasClientDraftData(formData)) return;
+    saveFormDraft(clientDraftKey, formData);
+    setDraftNotice('Draft saved automatically. You can safely switch apps or refresh CAATH.');
+  }, [clientDraftKey, formData, showAddClient]);
 
   const loadClients = useCallback(async () => {
     if (!user?.firmId) return;
@@ -137,14 +150,14 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   useEffect(() => {
     const onQuickAction = (event: Event) => {
       const customEvent = event as CustomEvent<{ action?: string }>;
-      if (customEvent.detail?.action === 'create-client') {
+      if (customEvent.detail?.action === 'create-client' && canManageClients) {
         setShowAddClient(true);
         setFormError(null);
       }
     };
     window.addEventListener('caath:quick-action', onQuickAction);
     return () => window.removeEventListener('caath:quick-action', onQuickAction);
-  }, []);
+  }, [canManageClients]);
 
   const toggleService = (service: string) => {
     setFormData((prev) => {
@@ -159,7 +172,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   };
 
   const handleSaveClient = async () => {
-    if (!user) return;
+    if (!user || !canManageClients) return;
 
     setFormError(null);
 
@@ -200,7 +213,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
         user,
       });
 
-      setFormData(defaultClientForm);
+      if (clientDraftKey) clearFormDraft(clientDraftKey);
+      setDraftNotice(null);
+      setFormData(DEFAULT_CLIENT_FORM);
       setShowAddClient(false);
       loadClients();
     } catch (error) {
@@ -209,7 +224,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
   };
 
   const handleUpdateClient = async () => {
-    if (!user || !editClient) return;
+    if (!user || !editClient || !canManageClients) return;
 
     setFormError(null);
 
@@ -225,7 +240,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
       }, user);
 
       setEditClient(null);
-      setFormData(defaultClientForm);
+      setFormData(DEFAULT_CLIENT_FORM);
       loadClients();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Failed to update client');
@@ -275,30 +290,25 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
 
   return (
     <>
-    <div className="p-8 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
-      <div className="flex items-center justify-between">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-3xl font-bold gold-text-gradient">Client Master</h2>
           <p className="text-slate-500">Manage your clients and their compliance profiles.</p>
         </div>
-        <button
-         onClick={() => { setShowAddClient(true); setFormError(null); setFormData({
-          name: '',
-          type: '',
-          pan: '',
-          gstin: '',
-          tan: '',
-          cinLlpin: '',
-          portalUsername: '',
-          email: '',
-          phone: '',
-          services: [],
-        }); }}
+        {canManageClients && <button
+         onClick={() => {
+          const restored = clientDraftKey ? readFormDraft<ClientFormData>(clientDraftKey) : null;
+          setShowAddClient(true);
+          setFormError(null);
+          setFormData(restored ? { ...DEFAULT_CLIENT_FORM, ...restored, services: restored.services || [] } : DEFAULT_CLIENT_FORM);
+          setDraftNotice(restored ? 'Your unfinished client entry was recovered automatically.' : 'Draft saving is active.');
+        }}
         className="flex items-center gap-2 px-6 py-2.5 bg-gold text-matte-black rounded-xl font-bold hover:bg-gold-light"
     >
           <Plus className="w-4 h-4" />
           Add New Client
-        </button>
+        </button>}
       </div>
 
       <div className="flex flex-col md:flex-row gap-4">
@@ -327,7 +337,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
       )}
 
       {!loading && (
-      <div className="bg-matte-black-light rounded-2xl border border-slate-800 shadow-2xl overflow-hidden">
+      <div className="bg-matte-black-light rounded-2xl border border-slate-800 shadow-2xl overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-matte-black border-b border-slate-800">
@@ -423,12 +433,12 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                     >
                       <ExternalLink className="w-4 h-4" />
                     </button>
-                    <button
+                    {canManageClients && <button
                       onClick={(e) => { e.stopPropagation(); openEditModal(client); }}
                       className="p-2 text-slate-500 hover:text-white hover:bg-slate-800 rounded-lg"
                     >
                       <MoreVertical className="w-4 h-4" />
-                    </button>
+                    </button>}
                     {allowClientDelete && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setClientToDelete(client); }}
@@ -449,7 +459,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
 
     {/* Add Client Modal */}
     <Modal
-      isOpen={showAddClient}
+      isOpen={canManageClients && showAddClient}
       onClose={() => guardClientModalClose(() => setShowAddClient(false))}
       title="Add New Client"
       size="lg"
@@ -458,6 +468,25 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
           {formError && (
             <div className="p-3 mb-4 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-400">
               {formError}
+            </div>
+          )}
+
+          {draftNotice && (
+            <div role="status" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+              <span>{draftNotice}</span>
+              {hasClientDraftData(formData) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (clientDraftKey) clearFormDraft(clientDraftKey);
+                    setFormData(DEFAULT_CLIENT_FORM);
+                    setDraftNotice('Draft cleared.');
+                  }}
+                  className="shrink-0 font-bold text-emerald-100 underline underline-offset-2"
+                >
+                  Clear draft
+                </button>
+              )}
             </div>
           )}
 
@@ -493,6 +522,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               value={formData.pan}
               onChange={(e) => setFormData({ ...formData, pan: e.target.value.toUpperCase() })}
               maxLength={10}
+              pattern="[A-Za-z]{5}[0-9]{4}[A-Za-z]"
+              title="PAN must contain 5 letters, 4 numbers, and 1 letter"
             />
 
             <input
@@ -502,6 +533,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               value={formData.gstin}
               onChange={(e) => setFormData({ ...formData, gstin: e.target.value.toUpperCase() })}
               maxLength={15}
+              pattern="(0[1-9]|[12][0-9]|3[0-8])[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z]Z[0-9A-Za-z]"
+              title="Please enter a valid 15-character GSTIN"
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -512,6 +545,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                 value={formData.tan}
                 onChange={(e) => setFormData({ ...formData, tan: e.target.value.toUpperCase() })}
                 maxLength={10}
+                pattern="[A-Za-z]{4}[0-9]{5}[A-Za-z]"
+                title="TAN must contain 4 letters, 5 numbers, and 1 letter"
               />
               <input
                 type="text"
@@ -519,7 +554,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
                 className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white uppercase"
                 value={formData.cinLlpin}
                 onChange={(e) => setFormData({ ...formData, cinLlpin: e.target.value.toUpperCase() })}
-                maxLength={30}
+                maxLength={21}
+                title="Please enter a valid CIN or LLPIN"
               />
             </div>
 
@@ -533,6 +569,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
 
             <input
               type="email"
+              maxLength={254}
               placeholder="Email"
               className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
               value={formData.email}
@@ -540,7 +577,11 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             />
 
             <input
-              type="text"
+              type="tel"
+              inputMode="numeric"
+              maxLength={14}
+              pattern="(?:[+]91[ -]?)?[6-9][0-9]{9}"
+              title="Please enter a valid 10-digit Indian mobile number"
               placeholder="Phone"
               className="w-full p-3 rounded-xl bg-matte-black border border-slate-700 text-white"
               value={formData.phone}
@@ -623,6 +664,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             <div>
               <label className="text-sm text-slate-400 mb-2 block">Client Name</label>
               <input
+                type="text"
+                maxLength={120}
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
@@ -632,6 +675,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             <div>
               <label className="text-sm text-slate-400 mb-2 block">Email</label>
               <input
+                type="email"
+                maxLength={254}
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
@@ -642,6 +687,9 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               <div>
                 <label className="text-sm text-slate-400 mb-2 block">TAN</label>
                 <input
+                  maxLength={10}
+                  pattern="[A-Za-z]{4}[0-9]{5}[A-Za-z]"
+                  title="TAN must contain 4 letters, 5 numbers, and 1 letter"
                   value={formData.tan}
                   onChange={(e) => setFormData({ ...formData, tan: e.target.value.toUpperCase() })}
                   className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full uppercase"
@@ -650,6 +698,8 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
               <div>
                 <label className="text-sm text-slate-400 mb-2 block">CIN / LLPIN</label>
                 <input
+                  maxLength={21}
+                  title="Please enter a valid CIN or LLPIN"
                   value={formData.cinLlpin}
                   onChange={(e) => setFormData({ ...formData, cinLlpin: e.target.value.toUpperCase() })}
                   className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full uppercase"
@@ -660,6 +710,7 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             <div>
               <label className="text-sm text-slate-400 mb-2 block">Portal Username</label>
               <input
+                type="text"
                 value={formData.portalUsername}
                 onChange={(e) => setFormData({ ...formData, portalUsername: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"
@@ -669,6 +720,11 @@ export const ClientMaster: React.FC<{ assignedOnly?: boolean; assignedClients?: 
             <div>
               <label className="text-sm text-slate-400 mb-2 block">Phone</label>
               <input
+                type="tel"
+                inputMode="numeric"
+                maxLength={14}
+                pattern="(?:[+]91[ -]?)?[6-9][0-9]{9}"
+                title="Please enter a valid 10-digit Indian mobile number"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 className="bg-matte-black border border-slate-700 rounded-xl p-3 text-white w-full"

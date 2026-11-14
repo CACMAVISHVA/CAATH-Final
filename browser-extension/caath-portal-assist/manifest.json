@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "CAATH Portal Assist",
+  "version": "1.0.0",
+  "description": "Securely fills saved CAATH credentials on supported Indian government portals. It never submits the login form.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://caath.in/*",
+    "https://www.caath.in/*",
+    "https://*.gst.gov.in/*",
+    "https://*.incometax.gov.in/*",
+    "https://*.mca.gov.in/*",
+    "https://*.tdscpc.gov.in/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://caath.in/*", "https://www.caath.in/*"],
+      "js": ["caath-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://*.gst.gov.in/*",
+        "https://*.incometax.gov.in/*",
+        "https://*.mca.gov.in/*",
+        "https://*.tdscpc.gov.in/*"
+      ],
+      "js": ["portal-autofill.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_title": "CAATH Portal Assist"
+  }
+}

@@ -1,33 +1,48 @@
 import React, { Component, ReactNode } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, LifeBuoy, Loader2, RefreshCw } from 'lucide-react';
 import { Logo } from './Logo';
 
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  onReportError?: (error: Error, componentStack?: string) => Promise<void>;
 }
 
 interface State {
   hasError: boolean;
   error: Error | null;
+  componentStack?: string;
+  reportState: 'idle' | 'sending' | 'sent' | 'failed';
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, reportState: 'idle' };
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, reportState: 'idle' };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('CAATH OS Error:', error, errorInfo);
+    this.setState({ componentStack: errorInfo.componentStack || undefined });
   }
 
   handleReset = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, componentStack: undefined, reportState: 'idle' });
+  };
+
+  handleReport = async () => {
+    if (!this.props.onReportError || !this.state.error || this.state.reportState === 'sending') return;
+    this.setState({ reportState: 'sending' });
+    try {
+      await this.props.onReportError(this.state.error, this.state.componentStack);
+      this.setState({ reportState: 'sent' });
+    } catch {
+      this.setState({ reportState: 'failed' });
+    }
   };
 
   render() {
@@ -58,6 +73,20 @@ export class ErrorBoundary extends Component<Props, State> {
               <RefreshCw className="w-4 h-4" />
               Retry
             </button>
+            {this.props.onReportError && (
+              <>
+                <button
+                  type="button"
+                  onClick={this.handleReport}
+                  disabled={this.state.reportState === 'sending' || this.state.reportState === 'sent'}
+                  className="mt-3 flex w-full items-center justify-center gap-2 border border-gold/40 py-2 text-sm font-semibold text-gold transition-colors hover:bg-gold/10 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {this.state.reportState === 'sending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <LifeBuoy className="h-4 w-4" />}
+                  {this.state.reportState === 'sent' ? 'Support ticket created' : 'Report to support'}
+                </button>
+                {this.state.reportState === 'failed' && <p className="mt-2 text-center text-xs text-red-400">Unable to create a support ticket. Please try again after reloading.</p>}
+              </>
+            )}
             <button
               onClick={() => window.location.reload()}
               className="w-full mt-3 py-2 text-sm text-slate-400 hover:text-gold transition-colors"

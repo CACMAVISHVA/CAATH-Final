@@ -50,11 +50,40 @@ const toRisk = (days: number): 'low' | 'medium' | 'high' => {
   return 'low';
 };
 
+const emptyReceivables = {
+  totalBilled: 0,
+  totalReceived: 0,
+  totalPending: 0,
+  totalOverdue: 0,
+  byStatus: {},
+  byAging: {
+    '0-30': 0,
+    '31-60': 0,
+    '61-90': 0,
+    '90+': 0,
+  },
+};
+
+const rowsOrEmpty = <T>(
+  result: PromiseSettledResult<{ data: T[] | null; error: unknown }>,
+  label: string,
+): T[] => {
+  if (result.status === 'rejected') {
+    console.warn(`[AUTH] Optional revenue module unavailable: ${label}`, result.reason);
+    return [];
+  }
+  if (result.value.error) {
+    console.warn(`[AUTH] Optional revenue module unavailable: ${label}`, result.value.error);
+    return [];
+  }
+  return result.value.data || [];
+};
+
 export const getRevenueIntelligenceSnapshot = async (firmId: string): Promise<RevenueIntelligenceSnapshot> => {
   const { start, end } = currentMonthRange();
   const now = new Date();
 
-  const [invoicesRes, tasksRes, clientsRes, noticesRes, receivables] = await Promise.all([
+  const [invoicesRes, tasksRes, clientsRes, noticesRes, receivablesRes] = await Promise.allSettled([
     supabase
       .from('invoices')
       .select('id, client_id, invoice_number, issue_date, due_date, billing_category, status, total, paid_amount, pending_amount')
@@ -73,17 +102,15 @@ export const getRevenueIntelligenceSnapshot = async (firmId: string): Promise<Re
       .select('id, status, deadline')
       .eq('firm_id', firmId),
     getReceivablesSummary(firmId),
-  ]);
+  ] as const);
 
-  if (invoicesRes.error) throw invoicesRes.error;
-  if (tasksRes.error) throw tasksRes.error;
-  if (clientsRes.error) throw clientsRes.error;
-  if (noticesRes.error) throw noticesRes.error;
-
-  const invoices = invoicesRes.data || [];
-  const tasks = (tasksRes.data || []) as Pick<TaskRow, 'id' | 'title' | 'client_id' | 'status' | 'updated_at'>[];
-  const clients = clientsRes.data || [];
-  const notices = noticesRes.data || [];
+  const invoices = rowsOrEmpty(invoicesRes, 'invoices');
+  const tasks = rowsOrEmpty(tasksRes, 'tasks') as Pick<TaskRow, 'id' | 'title' | 'client_id' | 'status' | 'updated_at'>[];
+  const clients = rowsOrEmpty(clientsRes, 'clients');
+  const notices = rowsOrEmpty(noticesRes, 'notices');
+  const receivables = receivablesRes.status === 'fulfilled'
+    ? receivablesRes.value
+    : (console.warn('[AUTH] Optional revenue module unavailable: receivables summary', receivablesRes.reason), emptyReceivables);
 
   const clientNameMap = new Map(clients.map((client) => [client.id, client.name]));
 

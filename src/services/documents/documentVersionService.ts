@@ -25,10 +25,6 @@ export const addDocumentVersion = async (
 
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-  const { data: { publicUrl } } = supabase.storage
-    .from('documents')
-    .getPublicUrl(fileName);
-
   // Create new version record
   const { data, error } = await supabase
     .from('document_vault')
@@ -38,7 +34,7 @@ export const addDocumentVersion = async (
       category: parent.category,
       document_type: parent.document_type,
       name: file.name,
-      file_path: publicUrl,
+      file_path: fileName,
       file_size: file.size,
       mime_type: file.type,
       linked_task_id: parent.linked_task_id,

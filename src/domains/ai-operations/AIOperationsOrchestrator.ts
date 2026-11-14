@@ -217,13 +217,46 @@ export class AIOperationsOrchestrator {
   }
 
   async getDashboardIntelligence(user: User): Promise<AIOpsDashboardIntelligence> {
-    const [complianceNarrative, optimization, recommendations] = await Promise.all([
+    const [narrativeResult, optimizationResult, recommendationsResult] = await Promise.allSettled([
       this.getComplianceNarrative(user),
       this.getWorkflowOptimization(user),
       this.getWorkflowRecommendations(user),
     ]);
+
+    const complianceNarrative: AIComplianceNarrative = narrativeResult.status === 'fulfilled'
+      ? narrativeResult.value
+      : {
+        title: 'Operational intelligence in limited mode',
+        narrative: 'Core practice information remains available while one or more optional compliance sources reconnect.',
+        riskBand: 'moderate',
+        explainabilityNote: 'No compliance risk conclusion is shown until the live data sources are available again.',
+      };
+    const optimization: AIWorkflowOptimizationSnapshot = optimizationResult.status === 'fulfilled'
+      ? optimizationResult.value
+      : {
+        efficiencyScore: 0,
+        bottleneckRisk: 0,
+        escalationPressure: 0,
+        delayPrediction: 0,
+        recommendations: [],
+      };
+    const recommendations: AIOperationalRecommendation[] = recommendationsResult.status === 'fulfilled'
+      ? recommendationsResult.value
+      : [{
+        id: 'aiops-source-recovery',
+        title: 'Live intelligence sources reconnecting',
+        summary: 'Some optional operational sources could not be reached during this refresh.',
+        recommendedAction: 'Continue with the verified dashboard totals and refresh the page when connectivity is stable.',
+        priority: 'medium',
+        source: 'workflow',
+      }];
+    const availableSources = [narrativeResult, optimizationResult, recommendationsResult]
+      .filter((result) => result.status === 'fulfilled').length;
+
     return {
-      summary: `AI operations indicates ${optimization.bottleneckRisk}% bottleneck risk with ${optimization.delayPrediction}% delay prediction pressure.`,
+      summary: availableSources === 3
+        ? `AI operations indicates ${optimization.bottleneckRisk}% bottleneck risk with ${optimization.delayPrediction}% delay prediction pressure.`
+        : `Operational intelligence is active in limited mode (${availableSources} of 3 live sources available). Unavailable sources are excluded from the assessment.`,
       recommendations: recommendations.slice(0, 4),
       complianceNarrative,
       optimization,

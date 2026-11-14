@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { CheckCircle2, FileText, Printer, Settings, XCircle } from 'lucide-react';
+import { CheckCircle2, FileText, Printer, Search, Settings, XCircle } from 'lucide-react';
 import { FirmRow } from './FirmOperationsPanel';
 import { cn } from '../../lib/utils';
 import {
@@ -71,6 +71,10 @@ export const SubscriptionManagementPanel: React.FC<SubscriptionManagementPanelPr
   const [manualUtr, setManualUtr] = useState('');
   const [settingsDraft, setSettingsDraft] = useState<Partial<PlatformSettings>>(platformSettings || {});
   const [selectedInvoice, setSelectedInvoice] = useState<SubscriptionInvoice | null>(null);
+  const [selectedProof, setSelectedProof] = useState<SubscriptionRequest | null>(null);
+  const [requestSearch, setRequestSearch] = useState('');
+  const [requestStatus, setRequestStatus] = useState<'All' | SubscriptionRequest['status']>('All');
+  const [requestDate, setRequestDate] = useState('');
 
   const firmName = (firmId: string) => {
     const firm = firms.find((item) => item.id === firmId);
@@ -79,6 +83,15 @@ export const SubscriptionManagementPanel: React.FC<SubscriptionManagementPanelPr
 
   const expiredSubscriptions = useMemo(() => subscriptions.filter((sub) => sub.status === 'Expired' || (sub.expires_at && new Date(sub.expires_at) < new Date() && sub.status !== 'Active')), [subscriptions]);
   const activeSubscriptions = useMemo(() => subscriptions.filter((sub) => sub.status === 'Active'), [subscriptions]);
+  const filteredRequests = useMemo(() => {
+    const query = requestSearch.trim().toLowerCase();
+    return requests.filter((request) => {
+      const matchesStatus = requestStatus === 'All' || request.status === requestStatus;
+      const matchesDate = !requestDate || request.created_at.slice(0, 10) === requestDate;
+      const haystack = `${firmName(request.firm_id)} ${request.reference_number} ${request.utr_number} ${request.plan} ${request.billing_cycle}`.toLowerCase();
+      return matchesStatus && matchesDate && (!query || haystack.includes(query));
+    });
+  }, [requestDate, requestSearch, requestStatus, requests]);
   const manualTotals = calculateSubscriptionTotals(manualPlan, manualCycle);
 
   return (
@@ -99,22 +112,34 @@ export const SubscriptionManagementPanel: React.FC<SubscriptionManagementPanelPr
 
       {activeTab === 'requests' && (
         <Panel title="Pending Verification">
-          <Table headers={['Firm', 'Plan', 'Cycle', 'Amount', 'GST', 'Total', 'UTR', 'Requested', 'Status', 'Actions']}>
-            {requests.length === 0 ? <Empty colSpan={10} label="No subscription requests." /> : requests.map((request) => (
+          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_180px_170px]">
+            <label className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-600" />
+              <input value={requestSearch} onChange={(event) => setRequestSearch(event.target.value)} placeholder="Search firm, reference, payment ID..." className="w-full border border-slate-800 bg-matte-black py-2 pl-9 pr-3 text-sm text-white" />
+            </label>
+            <select value={requestStatus} onChange={(event) => setRequestStatus(event.target.value as typeof requestStatus)} className="border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white">
+              <option value="All">All Status</option>
+              <option value="Pending Verification">Pending Verification</option>
+              <option value="Approved">Approved</option>
+              <option value="Rejected">Rejected</option>
+            </select>
+            <input type="date" value={requestDate} onChange={(event) => setRequestDate(event.target.value)} className="border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white" />
+          </div>
+          <Table headers={['Firm', 'Plan', 'Cycle', 'Total', 'Payment', 'Proof', 'Requested', 'Status', 'Actions']}>
+            {filteredRequests.length === 0 ? <Empty colSpan={9} label="No subscription requests match the filters." /> : filteredRequests.map((request) => (
               <tr key={request.id}>
                 <Cell strong>{firmName(request.firm_id)}</Cell>
                 <Cell>{request.plan}</Cell>
                 <Cell>{request.billing_cycle}</Cell>
-                <Cell>{formatINR(request.amount)}</Cell>
-                <Cell>{formatINR(request.gst_amount)}</Cell>
                 <Cell strong>{formatINR(request.total_amount)}</Cell>
-                <Cell>{request.utr_number}</Cell>
+                <Cell>{request.payment_provider === 'Cashfree' ? `Cashfree · ${request.gateway?.status || 'Checking'}` : request.utr_number || '-'}</Cell>
+                <Cell>{request.screenshot_url ? <button onClick={() => setSelectedProof(request)} className="text-xs font-bold text-gold">Preview</button> : '-'}</Cell>
                 <Cell>{formatDate(request.created_at)}</Cell>
                 <Cell><Badge status={request.status} /></Cell>
                 <Cell>
                   {request.status === 'Pending Verification' ? (
                     <div className="flex gap-2">
-                      <button onClick={() => onApproveRequest(request)} disabled={busyAction === `request-${request.id}`} className="bg-gold px-3 py-1.5 text-xs font-bold text-matte-black disabled:opacity-50">Approve</button>
+                      <button onClick={() => onApproveRequest(request)} disabled={busyAction === `request-${request.id}` || (request.payment_provider === 'Cashfree' && request.gateway?.status !== 'PAID')} title={request.payment_provider === 'Cashfree' && request.gateway?.status !== 'PAID' ? 'Cashfree payment is not verified as paid.' : undefined} className="bg-gold px-3 py-1.5 text-xs font-bold text-matte-black disabled:opacity-50">Approve</button>
                       <button onClick={() => setRejecting(request)} className="bg-red-600 px-3 py-1.5 text-xs font-bold text-white">Reject</button>
                     </div>
                   ) : '-'}
@@ -217,6 +242,23 @@ export const SubscriptionManagementPanel: React.FC<SubscriptionManagementPanelPr
           </div>
         </div>
       )}
+
+      {selectedProof && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-3xl border border-slate-800 bg-matte-black-light p-5">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-white">Payment Screenshot</h3>
+                <p className="text-sm text-slate-500">{selectedProof.reference_number} · {firmName(selectedProof.firm_id)}</p>
+              </div>
+              <button onClick={() => setSelectedProof(null)} className="text-slate-500 hover:text-white" aria-label="Close screenshot preview">x</button>
+            </div>
+            <div className="max-h-[70vh] overflow-auto border border-slate-800 bg-matte-black p-3">
+              {selectedProof.screenshot_url ? <img src={selectedProof.screenshot_url} alt={`Payment proof for ${selectedProof.reference_number}`} className="mx-auto max-h-[65vh] max-w-full object-contain" /> : <p className="p-8 text-center text-sm text-slate-500">No screenshot uploaded.</p>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -248,7 +290,7 @@ const ManualActivation: React.FC<{
     <div className="grid gap-3 md:grid-cols-5">
       <select value={firmId} onChange={(event) => onFirmChange(event.target.value)} className="border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white">{firms.map((firm) => <option key={firm.id} value={firm.id}>{firm.name || firm.id}</option>)}</select>
       <select value={plan} onChange={(event) => onPlanChange(event.target.value as SubscriptionPlan)} className="border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white">{(Object.keys(SUBSCRIPTION_PLANS) as SubscriptionPlan[]).map((item) => <option key={item} value={item}>{item}</option>)}</select>
-      <select value={cycle} onChange={(event) => onCycleChange(event.target.value as BillingCycle)} className="border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white"><option value="Monthly">Monthly</option><option value="Annual">Annual</option></select>
+      <select value={cycle} onChange={(event) => onCycleChange(event.target.value as BillingCycle)} className="border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white"><option value="Monthly">Monthly</option><option value="Quarterly">Quarterly</option><option value="Half-Yearly">Half-Yearly</option><option value="Yearly">Yearly</option></select>
       <input value={utr} onChange={(event) => onUtrChange(event.target.value)} placeholder="UTR optional" className="border border-slate-800 bg-matte-black px-3 py-2 text-sm text-white" />
       <button onClick={onSubmit} disabled={!firmId} className="bg-gold px-4 py-2 text-sm font-bold text-matte-black disabled:opacity-50"><CheckCircle2 className="mr-2 inline h-4 w-4" />Activate {formatINR(total)}</button>
     </div>

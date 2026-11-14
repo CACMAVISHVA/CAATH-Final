@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
+import { downloadVaultDocument, previewDocumentUrl } from '../services/documents/documentStorageService';
 import {
   DocumentVaultFile,
   DocumentCategory,
@@ -43,6 +44,9 @@ import {
   getClientDocuments,
   restoreDocument,
   archiveDocument,
+  softDeleteDocument,
+  permanentDeleteDocument,
+  restoreDocumentFromTrash,
   getDeletedDocuments,
   getArchivedDocuments,
   DocumentSearchParams,
@@ -92,10 +96,19 @@ export const DocumentVault: React.FC<DocumentVaultProps> = ({
   const [selectedDocument, setSelectedDocument] = useState<DocumentVaultFile | null>(null);
   const [uploading, setUploading] = useState(false);
   const [previewDocument, setPreviewDocument] = useState<DocumentVaultFile | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const handleFileAction = async (document: DocumentVaultFile, preview: boolean) => {
+    setActionError(null);
+    try {
+      if (preview) setPreviewDocument({ ...document, file_path: await previewDocumentUrl(document.file_path) });
+      else await downloadVaultDocument(document.file_path, document.name);
+    } catch (error) { setActionError(error instanceof Error ? error.message : 'Unable to open document.'); }
+  };
   const [versions, setVersions] = useState<DocumentVaultFile[]>([]);
   const [expiringCount, setExpiringCount] = useState(0);
   const [storageBytes, setStorageBytes] = useState(0);
   const [uploadQueue, setUploadQueue] = useState<string[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Upload form state
   const [uploadCategory, setUploadCategory] = useState<DocumentCategory>('GST');
@@ -111,12 +124,12 @@ export const DocumentVault: React.FC<DocumentVaultProps> = ({
     try {
       let docs: DocumentVaultFile[];
 
-      if (clientId) {
-        docs = await getClientDocuments(clientId);
-      } else if (activeTab === 'trash') {
-        docs = await getDeletedDocuments(user.firmId);
+      if (activeTab === 'trash') {
+        docs = await getDeletedDocuments(user.firmId, clientId);
       } else if (activeTab === 'archived') {
-        docs = await getArchivedDocuments(user.firmId);
+        docs = await getArchivedDocuments(user.firmId, clientId);
+      } else if (clientId) {
+        docs = await getClientDocuments(clientId);
       } else {
         const params: DocumentSearchParams = {
           firmId: user.firmId,
@@ -164,6 +177,7 @@ export const DocumentVault: React.FC<DocumentVaultProps> = ({
     if (!files || !clientId || !user?.firmId) return;
 
     setUploading(true);
+    setUploadError(null);
     try {
       setUploadQueue(Array.from(files).map((file) => file.name));
       for (const file of Array.from(files)) {
@@ -184,6 +198,7 @@ export const DocumentVault: React.FC<DocumentVaultProps> = ({
       loadDocuments();
     } catch (error) {
       console.error('Upload failed:', error);
+      setUploadError(error instanceof Error ? error.message : 'Upload failed. Please try again.');
     } finally {
       setUploading(false);
     }
@@ -222,8 +237,33 @@ export const DocumentVault: React.FC<DocumentVaultProps> = ({
     setVersions(await getDocumentVersions(document.id));
   };
 
+  const handleLifecycleAction = async (
+    action: 'archive' | 'restore-archive' | 'trash' | 'restore-trash' | 'delete',
+  ) => {
+    if (!selectedDocument || !user?.firmId) return;
+
+    setActionError(null);
+    try {
+      const documentClientId = selectedDocument.client_id || undefined;
+      if (action === 'archive') await archiveDocument(selectedDocument.id, user, user.firmId, documentClientId);
+      if (action === 'restore-archive') await restoreDocument(selectedDocument.id, user, user.firmId, documentClientId);
+      if (action === 'trash') await softDeleteDocument(selectedDocument.id, user, user.firmId, documentClientId);
+      if (action === 'restore-trash') await restoreDocumentFromTrash(selectedDocument.id, user, user.firmId, documentClientId);
+      if (action === 'delete') {
+        if (!['SuperAdmin', 'Admin'].includes(user.role)) throw new Error('Only workspace administrators can permanently delete documents.');
+        if (!window.confirm(`Permanently delete ${selectedDocument.name}? This cannot be undone.`)) return;
+        await permanentDeleteDocument(selectedDocument.id);
+      }
+      setSelectedDocument(null);
+      await loadDocuments();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Document action failed.');
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-matte-black text-slate-300">
+      {actionError && <p role="alert" className="p-4 text-red-200">{actionError}</p>}
       {/* Header */}
       <div className="p-4 border-b border-slate-800">
         <div className="flex items-center justify-between mb-4">
@@ -475,6 +515,7 @@ export const DocumentVault: React.FC<DocumentVaultProps> = ({
                 {uploadQueue.map((item) => <p key={item} className="text-xs text-slate-300">{item}</p>)}
               </div>
             )}
+            {uploadError && <p className="mt-3 text-xs text-red-400">{uploadError}</p>}
           </div>
         </div>
       )}
@@ -580,22 +621,37 @@ export const DocumentVault: React.FC<DocumentVaultProps> = ({
 
             {/* Actions */}
             <div className="p-4 border-t border-slate-800 flex gap-2">
-              <button onClick={() => setPreviewDocument(selectedDocument)} className="flex-1 flex items-center justify-center gap-2 p-2 bg-matte-black border border-slate-700 rounded-lg text-sm text-white hover:border-gold/50">
+              <button onClick={() => handleFileAction(selectedDocument, true)} className="flex-1 flex items-center justify-center gap-2 p-2 bg-matte-black border border-slate-700 rounded-lg text-sm text-white hover:border-gold/50">
                 <Eye className="w-4 h-4" />
                 Preview
               </button>
-              <button className="flex-1 flex items-center justify-center gap-2 p-2 bg-matte-black border border-slate-700 rounded-lg text-sm text-white hover:border-gold/50">
+              <button onClick={() => handleFileAction(selectedDocument, false)} className="flex-1 flex items-center justify-center gap-2 p-2 bg-matte-black border border-slate-700 rounded-lg text-sm text-white hover:border-gold/50">
                 <Download className="w-4 h-4" />
                 Download
               </button>
               {activeTab === 'trash' && (
-                <button className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 hover:bg-emerald-500/20">
+                <button aria-label="Restore from trash" onClick={() => handleLifecycleAction('restore-trash')} className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 hover:bg-emerald-500/20">
                   <RotateCcw className="w-4 h-4" />
                 </button>
               )}
+              {activeTab === 'trash' && ['SuperAdmin', 'Admin'].includes(user?.role || '') && (
+                <button aria-label="Delete permanently" onClick={() => handleLifecycleAction('delete')} className="p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 hover:bg-red-500/20">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
               {activeTab === 'all' && (
-                <button className="p-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-amber-400">
+                <button aria-label="Archive document" onClick={() => handleLifecycleAction('archive')} className="p-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-amber-400">
                   <Archive className="w-4 h-4" />
+                </button>
+              )}
+              {activeTab === 'all' && (
+                <button aria-label="Move document to trash" onClick={() => handleLifecycleAction('trash')} className="p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 hover:bg-red-500/20">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+              {activeTab === 'archived' && (
+                <button aria-label="Restore from archive" onClick={() => handleLifecycleAction('restore-archive')} className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 hover:bg-emerald-500/20">
+                  <RotateCcw className="w-4 h-4" />
                 </button>
               )}
             </div>

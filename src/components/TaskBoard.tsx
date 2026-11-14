@@ -268,9 +268,9 @@ export const TaskBoard: React.FC = () => {
   };
 
   return (
-    <div className="p-8 space-y-6 h-full bg-matte-black text-slate-300 overflow-y-auto">
+    <div className="caath-page h-full space-y-6 overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold gold-text-gradient">Tasks & Workflows</h2>
           <p className="text-slate-500">Assign tasks, track progress, and manage recurring workflows.</p>
@@ -285,6 +285,7 @@ export const TaskBoard: React.FC = () => {
           <div className="flex bg-matte-black-light border border-slate-800 rounded-lg p-1">
             <button
               onClick={() => setView('board')}
+              aria-label="Board view"
               className={cn(
                 "p-1.5 rounded-md transition-all",
                 view === 'board' ? "bg-gold/10 text-gold" : "text-slate-400 hover:text-slate-200"
@@ -294,6 +295,7 @@ export const TaskBoard: React.FC = () => {
             </button>
             <button
               onClick={() => setView('list')}
+              aria-label="List view"
               className={cn(
                 "p-1.5 rounded-md transition-all",
                 view === 'list' ? "bg-gold/10 text-gold" : "text-slate-400 hover:text-slate-200"
@@ -427,7 +429,7 @@ export const TaskBoard: React.FC = () => {
                     </div>
                   </motion.div>
                 ))}
-                {filteredTasks.filter((t) => t.status === column.id).length === 0 && (
+                {filteredTasks.filter((t) => normalizeStatusForColumns(t.status) === column.id).length === 0 && (
                   <div className="p-4 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
                     No tasks
                   </div>

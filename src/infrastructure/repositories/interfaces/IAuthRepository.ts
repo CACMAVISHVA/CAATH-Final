@@ -1,4 +1,4 @@
-import { Session, User } from '@supabase/supabase-js';
+import { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 
 export interface IAuthRepository {
   signIn(email: string, password: string): Promise<void>;
@@ -6,5 +6,5 @@ export interface IAuthRepository {
   getSession(): Promise<Session | null>;
   refreshSession(): Promise<Session | null>;
   getUser(): Promise<User | null>;
-  onAuthStateChange(handler: (session: Session | null) => void): () => void;
+  onAuthStateChange(handler: (event: AuthChangeEvent, session: Session | null) => void): () => void;
 }

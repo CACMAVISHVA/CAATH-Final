@@ -31,12 +31,44 @@ export class SupabaseTicketRepository implements ITicketRepository {
     return Array.from(latestByTicket.values()).filter((ticket) => canAccessTicket(ticket, user));
   }
 
-  async createTicket(_ticket: SupportTicket): Promise<void> {
-    return;
+  async createTicket(ticket: SupportTicket): Promise<void> {
+    const { error } = await supabase.from('support_tickets').insert({
+      id: ticket.id,
+      firm_id: ticket.firmId,
+      created_by: ticket.createdBy,
+      assigned_to: ticket.assignedToUserId,
+      subject: ticket.title,
+      description: ticket.description,
+      status: 'Open',
+      priority: ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1),
+      created_at: ticket.createdAt,
+      updated_at: ticket.updatedAt,
+    });
+
+    if (error) throw error;
   }
 
-  async updateTicket(_ticket: SupportTicket): Promise<void> {
-    return;
+  async updateTicket(ticket: SupportTicket): Promise<void> {
+    const statusByDomainStatus: Record<SupportTicket['status'], string> = {
+      open: 'Open',
+      investigating: 'In Progress',
+      'awaiting-response': 'In Progress',
+      resolved: 'Resolved',
+      closed: 'Closed',
+    };
+
+    const { error } = await supabase
+      .from('support_tickets')
+      .update({
+        assigned_to: ticket.assignedToUserId,
+        status: statusByDomainStatus[ticket.status],
+        priority: ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1),
+        updated_at: ticket.updatedAt,
+      })
+      .eq('id', ticket.id)
+      .eq('firm_id', ticket.firmId);
+
+    if (error) throw error;
   }
 
   async addReply(_ticket: SupportTicket, _reply: SupportTicketReply, _user: User): Promise<void> {

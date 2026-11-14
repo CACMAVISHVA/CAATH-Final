@@ -512,6 +512,7 @@ CREATE TABLE public.audit_logs (
   entity_type text NOT NULL,
   entity_id uuid,
   details text NOT NULL,
+  severity text NOT NULL DEFAULT 'info' CHECK (severity IN ('info', 'warning', 'critical')),
   before_state jsonb,
   after_state jsonb,
   ip_address text,
@@ -1232,14 +1233,43 @@ WITH CHECK (
 
 -- Client contacts policies
 DROP POLICY IF EXISTS client_contacts_scope ON public.client_contacts;
-CREATE POLICY client_contacts_scope ON public.client_contacts FOR ALL
+DROP POLICY IF EXISTS client_contacts_select_scope ON public.client_contacts;
+DROP POLICY IF EXISTS client_contacts_insert_scope ON public.client_contacts;
+DROP POLICY IF EXISTS client_contacts_update_scope ON public.client_contacts;
+DROP POLICY IF EXISTS client_contacts_delete_scope ON public.client_contacts;
+
+CREATE POLICY client_contacts_select_scope ON public.client_contacts FOR SELECT
 USING (
   public.is_god_admin()
-  OR firm_id = public.current_user_firm_id()
+  OR (
+    firm_id = public.current_user_firm_id()
+    AND (
+      public.current_user_role() IN ('SuperAdmin', 'Admin', 'Staff')
+      OR user_id = public.current_user_profile_id()
+    )
+  )
+);
+
+CREATE POLICY client_contacts_insert_scope ON public.client_contacts FOR INSERT
+WITH CHECK (
+  public.is_god_admin()
+  OR (firm_id = public.current_user_firm_id() AND public.current_user_role() IN ('SuperAdmin', 'Admin'))
+);
+
+CREATE POLICY client_contacts_update_scope ON public.client_contacts FOR UPDATE
+USING (
+  public.is_god_admin()
+  OR (firm_id = public.current_user_firm_id() AND public.current_user_role() IN ('SuperAdmin', 'Admin'))
 )
 WITH CHECK (
   public.is_god_admin()
-  OR firm_id = public.current_user_firm_id()
+  OR (firm_id = public.current_user_firm_id() AND public.current_user_role() IN ('SuperAdmin', 'Admin'))
+);
+
+CREATE POLICY client_contacts_delete_scope ON public.client_contacts FOR DELETE
+USING (
+  public.is_god_admin()
+  OR (firm_id = public.current_user_firm_id() AND public.current_user_role() IN ('SuperAdmin', 'Admin'))
 );
 
 -- Tasks policies

@@ -6,7 +6,7 @@
 import React from 'react';
 import { X, Search, Download } from 'lucide-react';
 import { FirmRow } from './FirmOperationsPanel';
-import { SubscriptionRow } from './SubscriptionManagementPanel';
+import { Subscription } from '../../services/subscriptionService';
 import { formatTenantDisplayId } from '../../lib/tenantIdentity';
 
 type DrilldownType = 'active' | 'suspended' | 'pending' | 'revenue';
@@ -20,9 +20,9 @@ interface DrilldownModalsProps {
   onClose: () => void;
   onExportCSV: () => void;
   onReactivate?: (firm: FirmRow) => void;
-  onApprove?: (subscription: SubscriptionRow) => void;
+  onApprove?: (subscription: Subscription) => void;
   firms: FirmRow[];
-  subscriptions: SubscriptionRow[];
+  subscriptions: Subscription[];
 }
 
 export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
@@ -47,7 +47,7 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
       case 'suspended':
         return firms.filter(f => f.status === 'Suspended').length;
       case 'pending':
-        return subscriptions.filter(s => s.status === 'Pending').length;
+        return subscriptions.filter(s => s.status === 'Pending Verification').length;
       case 'revenue':
         return subscriptions.filter(s => s.status === 'Active').length;
     }
@@ -165,7 +165,7 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {subscriptions.filter(s => s.status === 'Pending').filter(s => !searchQuery || formatTenantDisplayId(s.firm_id).toLowerCase().includes(searchQuery.toLowerCase())).map(sub => (
+                {subscriptions.filter(s => s.status === 'Pending Verification').filter(s => !searchQuery || formatTenantDisplayId(s.firm_id).toLowerCase().includes(searchQuery.toLowerCase())).map(sub => (
                   <tr key={sub.id} className="border-b border-slate-800/50 hover:bg-matte-black">
                     <td className="py-4 text-sm font-bold text-white whitespace-nowrap">{formatTenantDisplayId(sub.firm_id)}</td>
                     <td className="py-4 text-sm text-slate-400">{sub.plan}</td>

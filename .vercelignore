@@ -1,0 +1,13 @@
+backups/
+work/
+outputs/
+node_modules/
+dist/
+.git/
+.vercel/
+.env
+.env.*
+!.env.example
+*.log
+*.zip
+!public/downloads/caath-portal-assist.zip

@@ -6,6 +6,10 @@ export interface GSTDatasetLineageRecord {
   normalizedSchema: string;
   records: number;
   uploadedAt: string;
+  taxableValue: number;
+  taxAmount: number;
+  duplicateInvoices: number;
+  invoices: ParsedDatasetArtifact['invoices'];
 }
 
 export interface GSTIntelligenceStorageEnvelope {
@@ -35,5 +39,9 @@ export const buildStorageEnvelope = (params: {
     normalizedSchema: item.normalizedSchema,
     records: item.records,
     uploadedAt: new Date().toISOString(),
+    taxableValue: item.taxableValue,
+    taxAmount: item.taxAmount,
+    duplicateInvoices: item.duplicateInvoices,
+    invoices: item.invoices,
   })),
 });
