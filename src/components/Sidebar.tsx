@@ -6,11 +6,11 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
-import { LogOut, User as UserIcon, LayoutDashboard, FileText, MessageSquare, Clock, CreditCard, ShieldCheck, Users, CheckSquare, Bell, UserCog, History as HistoryIcon, FileCheck2, FolderLock, Building2, Activity, Database, Settings, Megaphone, BarChart3, Bug, PanelsTopLeft, Scale, ExternalLink, ChevronRight, Newspaper, FileKey2, BookOpenCheck, LibraryBig, Landmark } from 'lucide-react';
+import { LogOut, User as UserIcon, LayoutDashboard, FileText, MessageSquare, Clock, CreditCard, ShieldCheck, Users, CheckSquare, Bell, UserCog, History as HistoryIcon, FileCheck2, FolderLock, Building2, Activity, Database, Settings, Megaphone, ExternalLink, ChevronRight, Newspaper, FileKey2, BookOpenCheck, LibraryBig, Landmark, CircleHelp, FileSpreadsheet } from 'lucide-react';
 import { User } from '../types';
 import { getUserFullName, getUserDisplayRole } from '../lib/userHelpers';
 import { Logo } from './Logo';
-import { canAccessTab } from '../lib/permissions';
+import { canAccessTab, ROLE_HOME } from '../lib/permissions';
 
 interface SidebarProps {
   activeTab: string;
@@ -49,7 +49,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           label: 'Overview',
           items: [
-            { id: 'platform', label: 'Control Tower', icon: LayoutDashboard },
             { id: 'firms', label: 'Registrations & Firms', icon: Building2 },
             { id: 'provisioning', label: 'Provisioning', icon: UserCog },
           ],
@@ -58,6 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Control',
           items: [
             { id: 'usage', label: 'Usage Monitoring', icon: Database },
+            { id: 'notifications', label: 'Approval Alerts', icon: Bell },
             { id: 'platform-audit', label: 'Global Audit', icon: Activity },
             { id: 'settings', label: 'Platform Config', icon: Settings },
           ],
@@ -76,6 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'platform-regulatory-updates', label: 'Regulatory Publisher', icon: Newspaper },
           ],
         },
+        { label: 'Support', items: [{ id: 'help', label: 'Help Centre', icon: CircleHelp }] },
       ];
     }
 
@@ -84,7 +85,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           label: 'Overview',
           items: [
-            { id: 'overview', label: 'Overview', icon: LayoutDashboard },
             { id: 'compliance', label: 'Compliance', icon: Clock },
           ],
         },
@@ -95,32 +95,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'messages', label: 'Messages', icon: MessageSquare },
           ],
         },
+        { label: 'Support', items: [{ id: 'help', label: 'Help Centre', icon: CircleHelp }] },
       ];
     }
 
     const baseItems: SidebarNavItem[] = [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { id: 'workspace', label: 'Live Workspace', icon: PanelsTopLeft },
-      { id: 'analytics', label: 'Analytics', icon: BarChart3 },
       { id: 'tasks', label: 'Task Board', icon: CheckSquare },
       { id: 'clients', label: 'Client Master', icon: Users },
       { id: 'documents', label: 'Document Vault', icon: FolderLock },
       { id: 'compliance', label: 'Compliance', icon: ShieldCheck },
       { id: 'gst-practice-hub', label: 'GST Practice Hub', icon: Landmark },
+      { id: 'gst-filing-matrix', label: 'GST Filing Matrix', icon: FileSpreadsheet },
       { id: 'portal-login', label: 'Portal Login Desk', icon: ExternalLink },
       { id: 'practice-tools', label: 'Time & DSC Control', icon: FileKey2 },
       { id: 'template-studio', label: 'Template Studio', icon: LibraryBig },
-      { id: 'accounting-addon', label: 'Client Accounting', icon: BookOpenCheck },
+      { id: 'accounting-addon', label: 'Accounting', icon: BookOpenCheck },
       { id: 'notifications', label: 'Notifications', icon: Bell },
       { id: 'notices', label: 'Notice Center', icon: Bell },
       { id: 'approvals', label: 'Approvals', icon: FileCheck2 },
-      { id: 'governance', label: 'Governance', icon: Scale },
       { id: 'billing', label: 'Billing & Revenue', icon: CreditCard },
       { id: 'subscription', label: 'Subscription', icon: CreditCard },
       { id: 'user-management', label: 'User Management', icon: UserCog },
       { id: 'workspace-settings', label: 'Workspace Settings', icon: Settings },
       { id: 'firm-profile', label: 'Firm Profile', icon: Building2 },
       { id: 'login-activity', label: 'Login Activity', icon: Activity },
+      { id: 'help', label: 'Help Centre', icon: CircleHelp },
     ];
 
     const items = [...baseItems];
@@ -130,14 +130,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items.push({ id: 'staff', label: 'Staff Management', icon: UserCog });
       items.push({ id: 'auditlog', label: 'Audit Log', icon: HistoryIcon });
       items.push({ id: 'security', label: 'Security', icon: ShieldCheck });
-      items.push({ id: 'qa', label: 'Operational QA', icon: Bug });
     }
 
     let visibleItems = items;
     if (user?.role === 'Admin') {
       visibleItems = items.filter(item => !['billing', 'subscription', 'staff', 'security', 'workspace-settings', 'firm-profile'].includes(item.id)).concat([
         { id: 'auditlog', label: 'Audit Log', icon: HistoryIcon },
-        { id: 'qa', label: 'Operational QA', icon: Bug },
       ]);
     }
 
@@ -149,13 +147,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter((item): item is SidebarNavItem => Boolean(item));
 
     return [
-      { label: 'Focus', items: pick(['workspace', 'dashboard', 'analytics']) },
       { label: 'Work', items: pick(['tasks', 'clients', 'documents', 'template-studio', 'practice-tools', 'accounting-addon']) },
-      { label: 'Compliance', items: pick(['gst-practice-hub', 'compliance', 'regulatory-updates', 'notifications', 'notices']) },
+      { label: 'Compliance', items: pick(['gst-filing-matrix', 'gst-practice-hub', 'compliance', 'regulatory-updates', 'notifications', 'notices']) },
       { label: 'Government Portals', items: pick(['portal-login']) },
-      { label: 'Control', items: pick(['approvals', 'governance']) },
+      { label: 'Approvals', items: pick(['approvals']) },
       { label: 'Workspace Administration', items: pick(['user-management', 'billing', 'subscription', 'workspace-settings', 'firm-profile', 'security', 'login-activity']) },
-      { label: 'Administration', items: pick(['staff', 'auditlog', 'qa']) },
+      { label: 'Administration', items: pick(['staff', 'auditlog']) },
+      { label: 'Support', items: pick(['help']) },
     ].filter((section) => section.items.length > 0);
   };
 
@@ -202,6 +200,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+        {user && (
+          <button
+            type="button"
+            onClick={() => { setActiveTab(ROLE_HOME[user.role]); onClose(); }}
+            className={cn(
+              "group relative flex w-full items-center gap-3 overflow-hidden rounded-md px-3 py-3 text-left transition-all duration-200 focus:outline-none focus:ring-1 focus:ring-gold/60",
+              activeTab === ROLE_HOME[user.role]
+                ? "bg-white/[0.07] text-white shadow-sm ring-1 ring-white/[0.055]"
+                : "text-slate-400 hover:bg-white/[0.04] hover:text-white",
+            )}
+          >
+            <LayoutDashboard className={cn("h-4 w-4 shrink-0", activeTab === ROLE_HOME[user.role] ? "text-gold" : "text-slate-500 group-hover:text-slate-300")} />
+            <span className="text-sm font-semibold">Home</span>
+            {activeTab === ROLE_HOME[user.role] && <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded-r bg-gold/80" />}
+          </button>
+        )}
         {sections.map((section) => (
           <div key={section.label} className="space-y-1.5">
             <button

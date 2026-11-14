@@ -26,6 +26,8 @@ import { supabase } from '../lib/supabase';
 import { createAccountWithRole } from '../services/accountOnboardingService';
 import { useToast } from './Toast';
 import { firstValidationError, validateEmail, validateIndianMobile, validateRequiredName } from '../lib/fieldValidation';
+import { useSessionDraft } from '../hooks/useSessionDraft';
+import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 
 interface NewStaffForm {
   name: string;
@@ -37,25 +39,42 @@ interface NewStaffForm {
   joiningDate: string;
 }
 
+const createDefaultStaffForm = (): NewStaffForm => ({
+  name: '',
+  email: '',
+  phone: '',
+  role: 'Staff',
+  department: '',
+  designation: '',
+  joiningDate: new Date().toISOString().split('T')[0],
+});
+
 export const StaffManagement: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
   const [staff, setStaff] = useState<User[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<User | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newStaff, setNewStaff] = useState<NewStaffForm>({
-    name: '',
-    email: '',
-    phone: '',
-    role: 'Staff',
-    department: '',
-    designation: '',
-    joiningDate: new Date().toISOString().split('T')[0],
-  });
+  const staffDraftKey = `caath:draft:staff:${user?.firmId || 'loading'}`;
+  const [newStaff, setNewStaff, clearNewStaffDraft] = useSessionDraft<NewStaffForm>(staffDraftKey, createDefaultStaffForm());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deactivatingId, setDeactivatingId] = useState<string | null>(null);
+  const hasUnsavedStaffChanges = Boolean(
+    newStaff.name || newStaff.email || newStaff.phone || newStaff.department || newStaff.designation || newStaff.role !== 'Staff',
+  );
+  const guardStaffModalClose = useUnsavedChangesGuard(hasUnsavedStaffChanges);
+
+  const closeStaffModal = () => guardStaffModalClose(() => {
+    setShowAddModal(false);
+    clearNewStaffDraft();
+    setFormError(null);
+  });
+
+  React.useEffect(() => {
+    if (hasUnsavedStaffChanges) setShowAddModal(true);
+  }, []);
 
   React.useEffect(() => {
     const loadUsers = async () => {
@@ -164,15 +183,7 @@ export const StaffManagement: React.FC = () => {
       setStaff((current) => [newStaffMember, ...current.filter((member) => member.id !== newStaffMember.id)]);
       setShowAddModal(false);
       toast.success('Staff account created', `${newStaffMember.name} was added without changing your session.`);
-      setNewStaff({
-        name: '',
-        email: '',
-        phone: '',
-        role: 'Staff',
-        department: '',
-        designation: '',
-        joiningDate: new Date().toISOString().split('T')[0],
-      });
+      clearNewStaffDraft();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to create user.';
       setFormError(message);
@@ -343,11 +354,11 @@ export const StaffManagement: React.FC = () => {
 
       {/* Add Staff Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShowAddModal(false)}>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={closeStaffModal}>
           <div className="bg-matte-black-light border border-slate-800 w-full max-w-lg" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white">Add New Staff Member</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-500 hover:text-white">✕</button>
+              <button onClick={closeStaffModal} className="text-slate-500 hover:text-white">✕</button>
             </div>
 
             <div className="p-4 space-y-4">
@@ -446,7 +457,7 @@ export const StaffManagement: React.FC = () => {
 
             <div className="flex justify-end gap-3 p-4 border-t border-slate-800">
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={closeStaffModal}
                 className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
               >
                 Cancel

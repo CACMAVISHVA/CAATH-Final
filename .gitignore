@@ -9,3 +9,14 @@ coverage/
 
 .vercel
 .env*
+supabase/.temp/
+.vercel/
+
+__pycache__/
+*.pyc
+*.sqlite3
+
+# Local-only archives and scratch
+backups/
+work/
+outputs/

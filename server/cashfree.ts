@@ -5,22 +5,19 @@ export const CASHFREE_API_VERSION = '2025-01-01';
 export const CASHFREE_ENV = process.env.CASHFREE_ENV === 'production' ? 'production' : 'sandbox';
 export const CASHFREE_BASE_URL = CASHFREE_ENV === 'production' ? 'https://api.cashfree.com/pg' : 'https://sandbox.cashfree.com/pg';
 
-export type CashfreePlan = 'Starter' | 'Professional' | 'Enterprise';
-export type CashfreeBillingCycle = 'Monthly' | 'Quarterly' | 'Half-Yearly' | 'Yearly';
+export type CashfreePlan = 'CAATH Practice OS';
+export type CashfreeBillingCycle = 'Monthly';
 
-const monthlyAmounts: Record<CashfreePlan, number> = { Starter: 999, Professional: 1599, Enterprise: 2599 };
+const monthlyAmounts: Record<CashfreePlan, number> = { 'CAATH Practice OS': 1499 };
 
 export const calculatePaymentTotals = (plan: CashfreePlan, cycle: CashfreeBillingCycle) => {
   const monthly = monthlyAmounts[plan];
-  const amount = cycle === 'Yearly'
-    ? monthly * 10
-    : cycle === 'Half-Yearly'
-      ? Math.round(monthly * 6 * 0.92)
-      : cycle === 'Quarterly'
-        ? Math.round(monthly * 3 * 0.96)
-        : monthly;
-  const gstAmount = Math.round(amount * 0.18);
-  return { amount, gstAmount, totalAmount: amount + gstAmount };
+  const amount = monthly;
+  // CAATH is not charging GST on its own subscriptions until its GST
+  // registration is active. Keep the field for invoice compatibility so tax
+  // can be enabled later without changing the payment/order schema.
+  const gstAmount = 0;
+  return { amount, gstAmount, totalAmount: amount };
 };
 
 export const getServiceClient = () => {
@@ -39,7 +36,12 @@ export const requireCashfreeConfiguration = () => {
 
 export const readRawBody = async (req: IncomingMessage) => {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  let size = 0;
+  for await (const chunk of req) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); size += bytes.length;
+    if (size > 262144) throw Object.assign(new Error('Request too large.'), { statusCode: 413 });
+    chunks.push(bytes);
+  }
   return Buffer.concat(chunks).toString('utf8');
 };
 
@@ -58,9 +60,6 @@ export const authenticateWorkspaceOwner = async (req: IncomingMessage, db: Supab
     throw Object.assign(new Error('Only an active workspace Super Admin can make subscription payments.'), { statusCode: 403 });
   }
   const mobile = String(authData.user.user_metadata?.mobile || authData.user.phone || '').replace(/\D/g, '').slice(-10);
-  if (!/^\d{10}$/.test(mobile)) {
-    throw Object.assign(new Error('Add a valid 10-digit mobile number to your CAATH account before payment.'), { statusCode: 422 });
-  }
   return { profile, authUser: authData.user, mobile };
 };
 
@@ -84,66 +83,34 @@ export const cashfreeRequest = async <T>(path: string, init: RequestInit = {}): 
   return payload;
 };
 
-export const ensureApprovalRequest = async (db: SupabaseClient, order: Record<string, any>) => {
-  const { data: existing } = await db
-    .from('subscription_requests')
-    .select('id, reference_number')
-    .eq('gateway_order_id', order.id)
-    .maybeSingle();
-  if (existing) return existing;
-
-  const reference = `CF-${new Date().getFullYear()}-${String(order.provider_order_id).slice(-16).toUpperCase()}`;
-  const { data: request, error } = await db.from('subscription_requests').insert([{
-    reference_number: reference,
-    firm_id: order.firm_id,
-    plan: order.plan,
-    billing_cycle: order.billing_cycle,
-    amount: order.amount,
-    gst_amount: order.gst_amount,
-    total_amount: order.total_amount,
-    utr_number: order.provider_payment_id || order.provider_order_id,
-    screenshot_url: null,
-    screenshot_path: null,
-    payment_provider: 'Cashfree',
-    gateway_order_id: order.id,
-    status: 'Pending Verification',
-    created_by: order.created_by,
-    updated_by: order.created_by,
-  }]).select('id, reference_number').single();
-  if (error) throw error;
-
-  await db.from('firms').update({ subscription_plan: order.plan, subscription_status: 'Pending Verification', updated_at: new Date().toISOString() }).eq('id', order.firm_id);
-  await db.from('notifications').insert([
-    {
-      firm_id: order.firm_id,
-      audience_role: 'SuperAdmin',
-      title: 'Cashfree payment received',
-      message: `${reference} was verified by Cashfree and is awaiting CAATH approval.`,
-      priority: 'HIGH',
-      status: 'UNREAD',
-      created_by: order.created_by,
-    },
-    {
-      firm_id: null,
-      audience_role: 'GodAdmin',
-      title: 'Paid subscription awaiting approval',
-      message: `${reference} was verified by Cashfree. Review and activate the workspace subscription.`,
-      priority: 'HIGH',
-      status: 'UNREAD',
-      created_by: order.created_by,
-    },
-  ]);
-  return request;
+const sendApprovalEmailIfConfigured = async (db: SupabaseClient, decision: Record<string, any>, request: Record<string, any>) => {
+  if (decision?.status !== 'pending' || !process.env.RESEND_API_KEY || !process.env.CAATH_EMAIL_FROM) return;
+  const { data: settings } = await db.from('platform_settings').select('approval_email_enabled').eq('id', true).maybeSingle();
+  if (!settings?.approval_email_enabled) return;
+  const configuredRecipient = process.env.GOD_ADMIN_EMAIL;
+  const { data: godAdmin } = configuredRecipient
+    ? { data: { email: configuredRecipient } }
+    : await db.from('users').select('email').eq('role', 'GodAdmin').eq('status', 'Active').limit(1).maybeSingle();
+  if (!godAdmin?.email) return;
+  const actionUrl = `https://caath.in${decision.actionUrl}`;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: process.env.CAATH_EMAIL_FROM,
+      to: [godAdmin.email],
+      subject: `CAATH approval required: ${request.reference_number}`,
+      html: `<p>Cashfree verified payment <strong>${request.reference_number}</strong>.</p><p><a href="${actionUrl}">Review and approve this subscription</a></p><p>Sign-in as God Admin is required before any approval can be completed.</p><hr /><p style="font-size:12px;color:#667085">This is a transactional payment-approval alert, not marketing. To opt out of non-essential CAATH email, contact <a href="mailto:cacmavishva@gmail.com?subject=EMAIL%20PREFERENCES%20%E2%80%94%20CAATH">CAATH email preferences</a>. Important security, payment and account notices may still be sent.</p>`,
+    }),
+  });
+  if (!response.ok) console.error('Approval email delivery failed:', response.status, await response.text());
 };
 
 export const markOrderPaid = async (db: SupabaseClient, order: Record<string, any>, providerPaymentId?: string | null) => {
-  const { data: updated, error } = await db.from('payment_gateway_orders').update({
-    status: 'PAID',
-    provider_payment_id: providerPaymentId || order.provider_payment_id || null,
-    paid_at: order.paid_at || new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }).eq('id', order.id).select('*').single();
-  if (error) throw error;
-  const approvalRequest = await ensureApprovalRequest(db, updated);
-  return { order: updated, approvalRequest };
+  const { data: result, error } = await db.rpc('complete_cashfree_payment', { p_order_id: order.id, p_payment_id: providerPaymentId || null });
+  if (error || !result) throw error || new Error('Payment completion unavailable.');
+  await sendApprovalEmailIfConfigured(db, result.decision || {}, result.approvalRequest).catch(() => {
+    console.error('Approval notification delivery failed.');
+  });
+  return result as { order: Record<string, any>; approvalRequest: { id: string; reference_number: string }; decision: Record<string, any> };
 };

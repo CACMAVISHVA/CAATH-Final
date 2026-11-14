@@ -34,24 +34,41 @@ export type GSTClientAuthorization = {
   client?: { name?: string } | null;
 };
 
+export type GSTReturnProfileType = 'GSTR-1' | 'GSTR-3B' | 'GSTR-9' | 'GSTR-9C' | 'CMP-08';
+export type GSTReturnProfile = { id: string; client_id: string; return_type: GSTReturnProfileType; filing_frequency: 'Monthly' | 'Quarterly' | 'Annual'; active_from: string | null; active_until: string | null };
+export const GST_FILING_RETURN_TYPES: GSTReturnProfileType[] = ['GSTR-1', 'GSTR-3B', 'GSTR-9', 'GSTR-9C', 'CMP-08'];
+export const gstReturnFrequency = (returnType: GSTReturnProfileType): GSTReturnProfile['filing_frequency'] => returnType === 'CMP-08' ? 'Quarterly' : returnType === 'GSTR-9' || returnType === 'GSTR-9C' ? 'Annual' : 'Monthly';
+
 const requireFirm = (user: User) => {
   if (!user.firmId) throw new Error('A firm workspace is required.');
   return user.firmId;
 };
 
 export const loadGSTPracticeHub = async (firmId: string) => {
-  const [clients, statuses, authorizations] = await Promise.all([
-    supabase.from('clients').select('id,name,gstin,type').eq('firm_id', firmId).not('gstin', 'is', null).order('name'),
+  const [clients, statuses, authorizations, profiles] = await Promise.all([
+    supabase.from('clients').select('id,name,gstin,type,services').eq('firm_id', firmId).contains('services', ['GST Filing']).order('name'),
     supabase.from('gst_return_statuses').select('*,client:clients(name)').eq('firm_id', firmId).order('tax_period'),
     supabase.from('gst_client_authorizations').select('*,client:clients(name)').eq('firm_id', firmId).order('confirmed_at', { ascending: false }),
+    supabase.from('gst_client_return_profiles').select('id,client_id,return_type,filing_frequency,active_from,active_until').eq('firm_id', firmId),
   ]);
-  const error = clients.error || statuses.error || authorizations.error;
+  const error = clients.error || statuses.error || authorizations.error || profiles.error;
   if (error) throw error;
   return {
     clients: (clients.data || []) as GSTClientOption[],
     statuses: (statuses.data || []) as unknown as GSTReturnStatus[],
     authorizations: (authorizations.data || []) as unknown as GSTClientAuthorization[],
+    profiles: (profiles.data || []) as unknown as GSTReturnProfile[],
   };
+};
+
+export const saveGSTReturnProfiles = async (user: User, client: GSTClientOption, returnTypes: GSTReturnProfileType[]) => {
+  const firmId = requireFirm(user);
+  if (user.role !== 'SuperAdmin' && user.role !== 'Admin') throw new Error('Only a Super Admin or Admin can configure a client return profile.');
+  const { error: removeError } = await supabase.from('gst_client_return_profiles').delete().eq('firm_id', firmId).eq('client_id', client.id);
+  if (removeError) throw removeError;
+  if (!returnTypes.length) return;
+  const { error } = await supabase.from('gst_client_return_profiles').insert(returnTypes.map((returnType) => ({ firm_id: firmId, client_id: client.id, return_type: returnType, filing_frequency: gstReturnFrequency(returnType), created_by: user.id })));
+  if (error) throw error;
 };
 
 export const saveGSTReturnStatus = async (user: User, input: {

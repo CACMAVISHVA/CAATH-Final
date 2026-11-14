@@ -12,6 +12,7 @@ interface ClientProfileHeaderProps {
   client: ClientRow;
   stats: any;
   healthScore: number;
+  onEdit: () => void;
   onClose: () => void;
 }
 
@@ -19,6 +20,7 @@ export const ClientProfileHeader: React.FC<ClientProfileHeaderProps> = ({
   client,
   stats,
   healthScore,
+  onEdit,
   onClose,
 }) => {
   return (
@@ -31,7 +33,7 @@ export const ClientProfileHeader: React.FC<ClientProfileHeaderProps> = ({
           <div>
             <h2 className="text-xl font-bold text-white">{client.name}</h2>
             <p className="text-sm text-slate-400">{client.type}</p>
-            <div className="flex items-center gap-3 mt-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
               <span className="text-xs text-slate-500">PAN: {client.pan}</span>
               {client.gstin && (
                 <>
@@ -39,11 +41,28 @@ export const ClientProfileHeader: React.FC<ClientProfileHeaderProps> = ({
                   <span className="text-xs text-slate-500">GSTIN: {client.gstin}</span>
                 </>
               )}
+              {client.tan && (
+                <>
+                  <span className="text-slate-700">|</span>
+                  <span className="text-xs text-slate-500">TAN: {client.tan}</span>
+                </>
+              )}
+              {client.cin_llpin && (
+                <>
+                  <span className="text-slate-700">|</span>
+                  <span className="text-xs text-slate-500">CIN / LLPIN: {client.cin_llpin}</span>
+                </>
+              )}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="p-2 text-slate-400 hover:text-gold">
+          <button
+            type="button"
+            onClick={onEdit}
+            aria-label={`Edit ${client.name}`}
+            className="p-2 text-slate-400 transition-colors hover:text-gold"
+          >
             <Edit3 className="w-4 h-4" />
           </button>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-white">

@@ -8,12 +8,13 @@ import {
   createFirmProvisioningPackage,
   FirmProvisioningResult,
 } from '../../services/firmProvisioningService';
+import { useSessionDraft } from '../../hooks/useSessionDraft';
 
 type FirmForm = {
   firmName: string;
   adminName: string;
   adminEmail: string;
-  plan: 'Trial' | 'Starter' | 'Professional' | 'Enterprise';
+  plan: 'Trial' | 'CAATH Practice OS';
 };
 
 type ActivationForm = {
@@ -42,8 +43,14 @@ const defaultActivationForm: ActivationForm = {
 export const FirmProvisioningPanel: React.FC<{ onProvisioned?: () => void }> = ({ onProvisioned }) => {
   const { user } = useAuth();
   const toast = useToast();
-  const [firmForm, setFirmForm] = useState<FirmForm>(defaultFirmForm);
-  const [activationForm, setActivationForm] = useState<ActivationForm>(defaultActivationForm);
+  const [firmForm, setFirmForm, clearFirmDraft] = useSessionDraft<FirmForm>(
+    `caath:draft:firm-provisioning:${user?.id || 'loading'}`,
+    defaultFirmForm,
+  );
+  const [activationForm, setActivationForm, clearActivationDraft] = useSessionDraft<ActivationForm>(
+    `caath:draft:user-activation:${user?.id || 'loading'}`,
+    defaultActivationForm,
+  );
   const [result, setResult] = useState<FirmProvisioningResult | null>(null);
   const [busy, setBusy] = useState<'firm' | 'activation' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +69,7 @@ export const FirmProvisioningPanel: React.FC<{ onProvisioned?: () => void }> = (
         email: firmForm.adminEmail,
         role: 'SuperAdmin',
       }));
-      setFirmForm(defaultFirmForm);
+      clearFirmDraft();
       toast.success('Provisioning Package Created', 'Firm workspace and subscription shell are ready for admin activation.');
       onProvisioned?.();
     } catch (createError) {
@@ -81,7 +88,7 @@ export const FirmProvisioningPanel: React.FC<{ onProvisioned?: () => void }> = (
     try {
       await activateProvisionedUser(activationForm, user);
       toast.success('User Activated', `${activationForm.email} can now log in with role ${activationForm.role}.`);
-      setActivationForm(defaultActivationForm);
+      clearActivationDraft();
       onProvisioned?.();
     } catch (activationError) {
       const message = activationError instanceof Error ? activationError.message : 'Unable to activate user.';
@@ -125,9 +132,7 @@ export const FirmProvisioningPanel: React.FC<{ onProvisioned?: () => void }> = (
             <Field label="Plan">
               <select value={firmForm.plan} onChange={(event) => setFirmForm({ ...firmForm, plan: event.target.value as FirmForm['plan'] })} className="w-full border border-slate-700 bg-matte-black-light p-3 text-sm text-white outline-none focus:border-gold/40">
                 <option value="Trial">Trial</option>
-                <option value="Starter">Starter</option>
-                <option value="Professional">Professional</option>
-                <option value="Enterprise">Enterprise</option>
+                <option value="CAATH Practice OS">CAATH Practice OS</option>
               </select>
             </Field>
             <button

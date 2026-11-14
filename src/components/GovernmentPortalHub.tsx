@@ -1,11 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, ExternalLink, KeyRound, Landmark, Search, ShieldCheck } from 'lucide-react';
+import { ExternalLink, Landmark, Search, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getClients, ClientRow } from '../services/clientService';
 import { GOVERNMENT_PORTALS, GovernmentPortalConfig, getClientIdentifier, getGovernmentPortalByTab, openOfficialPortal, recordGovernmentPortalAccess } from '../services/governmentPortalService';
-import { getClientPortalCredentials, PortalCredentialSummary } from '../services/portalLauncherService';
-import { launchPortalWithAutofill } from '../services/portals/portalAssistService';
-import { PortalCredentialModal } from './PortalCredentialModal';
 
 type GovernmentPortalHubProps = { initialPortalTab?: string };
 
@@ -17,10 +14,6 @@ export const GovernmentPortalHub: React.FC<GovernmentPortalHubProps> = ({ initia
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
-  const [credentialsByClient, setCredentialsByClient] = useState<Record<string, PortalCredentialSummary[]>>({});
-  const [credentialSetup, setCredentialSetup] = useState<{ client: ClientRow; portal: GovernmentPortalConfig } | null>(null);
-  const [launchingClientId, setLaunchingClientId] = useState<string | null>(null);
 
   const loadClients = useCallback(async () => {
     if (!user?.firmId) return;
@@ -34,14 +27,6 @@ export const GovernmentPortalHub: React.FC<GovernmentPortalHubProps> = ({ initia
         : rows;
       setClients(allowedRows);
       setPortalByClient((current) => Object.fromEntries(allowedRows.map((client) => [client.id, current[client.id] || defaultPortal.type])));
-      const credentialResults = await Promise.all(allowedRows.map(async (client) => {
-        try {
-          return [client.id, await getClientPortalCredentials(client.id)] as const;
-        } catch {
-          return [client.id, []] as const;
-        }
-      }));
-      setCredentialsByClient(Object.fromEntries(credentialResults));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load client portal access.');
     } finally {
@@ -62,29 +47,8 @@ export const GovernmentPortalHub: React.FC<GovernmentPortalHubProps> = ({ initia
   const launchPortal = async (client: ClientRow) => {
     if (!user) return;
     const portal = portalForClient(client.id);
-    const credential = (credentialsByClient[client.id] || []).find((item) => item.portal_type === portal.type);
-    if (!credential) {
-      setCredentialSetup({ client, portal });
-      setNotice({ type: 'warning', message: `Add the ${portal.shortName} User ID and password once to enable assisted login.` });
-      return;
-    }
-
-    setLaunchingClientId(client.id);
-    setNotice(null);
-    try {
-      const result = await launchPortalWithAutofill({ credentialId: credential.id, portal, user });
-      if (!result.launched) {
-        openOfficialPortal(portal);
-        setNotice({ type: 'warning', message: `${result.message} The official portal was opened without auto-fill. Install CAATH Portal Assist to enable secure filling.` });
-      } else {
-        setNotice({ type: 'success', message: result.message });
-      }
-      await recordGovernmentPortalAccess({ user, portal, client, action: 'portal_launch' });
-    } catch (launchError) {
-      setNotice({ type: 'error', message: launchError instanceof Error ? launchError.message : 'Unable to start the portal login.' });
-    } finally {
-      setLaunchingClientId(null);
-    }
+    await recordGovernmentPortalAccess({ user, portal, client, action: 'portal_launch' });
+    openOfficialPortal(portal);
   };
 
   return (
@@ -103,11 +67,8 @@ export const GovernmentPortalHub: React.FC<GovernmentPortalHubProps> = ({ initia
 
         <div className="mb-5 flex items-start gap-3 rounded-md border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
-          <div className="flex-1"><p className="text-sm font-semibold text-white">Secure assisted login</p><p className="mt-1 text-sm text-slate-400">CAATH can securely fill the saved User ID and password on the matching official portal. CAPTCHA, OTP and the final Login click always remain with the user.</p></div>
-          <a href="/downloads/caath-portal-assist.zip" download className="inline-flex shrink-0 items-center gap-2 rounded-md border border-emerald-500/30 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/10"><Download className="h-4 w-4" />Portal Assist</a>
+          <div><p className="text-sm font-semibold text-white">Secure launch only</p><p className="mt-1 text-sm text-slate-400">CAATH opens the official portal in a new tab and records the launch. User IDs, passwords, OTPs and CAPTCHAs are not stored or auto-filled here.</p></div>
         </div>
-
-        {notice && <div role="status" className={`mb-5 rounded-md border p-4 text-sm ${notice.type === 'success' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200' : notice.type === 'error' ? 'border-red-500/25 bg-red-500/10 text-red-200' : 'border-amber-500/25 bg-amber-500/10 text-amber-100'}`}>{notice.message}</div>}
 
         <div className="overflow-hidden rounded-md border border-slate-800 bg-matte-black-light">
           <div className="overflow-x-auto">
@@ -125,8 +86,8 @@ export const GovernmentPortalHub: React.FC<GovernmentPortalHubProps> = ({ initia
                     <td className="px-5 py-4"><p className="text-sm font-semibold text-white">{client.name}</p><p className="mt-1 text-xs text-slate-600">{client.operational_id || client.pan}</p></td>
                     <td className="px-5 py-4 text-sm text-slate-300">{client.type || 'Not specified'}</td>
                     <td className="px-5 py-4"><select aria-label={`Government portal for ${client.name}`} value={portal.type} onChange={(event) => setPortalByClient((current) => ({ ...current, [client.id]: event.target.value }))} className="w-full rounded-md border border-slate-700 bg-matte-black px-3 py-2.5 text-sm text-white outline-none focus:border-gold/60">{GOVERNMENT_PORTALS.map((option) => <option key={option.type} value={option.type}>{option.name}</option>)}</select></td>
-                    <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${(credentialsByClient[client.id] || []).some((item) => item.portal_type === portal.type) ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : identifier ? 'border-sky-500/20 bg-sky-500/10 text-sky-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>{(credentialsByClient[client.id] || []).some((item) => item.portal_type === portal.type) ? 'Login ready' : identifier ? `${portal.identifierLabel} ready` : `${portal.identifierLabel} missing`}</span></td>
-                    <td className="px-5 py-4 text-right"><button type="button" disabled={launchingClientId === client.id} onClick={() => launchPortal(client)} className="inline-flex items-center gap-2 rounded-md bg-gold px-4 py-2.5 text-sm font-bold text-matte-black transition-colors hover:bg-gold-light disabled:opacity-50">{(credentialsByClient[client.id] || []).some((item) => item.portal_type === portal.type) ? 'Login' : 'Add Login'} {(credentialsByClient[client.id] || []).some((item) => item.portal_type === portal.type) ? <ExternalLink className="h-4 w-4" /> : <KeyRound className="h-4 w-4" />}</button></td>
+                    <td className="px-5 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${identifier ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>{identifier ? `${portal.identifierLabel} ready` : `${portal.identifierLabel} missing`}</span></td>
+                    <td className="px-5 py-4 text-right"><button type="button" onClick={() => launchPortal(client)} className="inline-flex items-center gap-2 rounded-md bg-gold px-4 py-2.5 text-sm font-bold text-matte-black transition-colors hover:bg-gold-light">Login <ExternalLink className="h-4 w-4" /></button></td>
                   </tr>;
                 })}
               </tbody>
@@ -135,19 +96,6 @@ export const GovernmentPortalHub: React.FC<GovernmentPortalHubProps> = ({ initia
         </div>
         <p className="mt-4 text-xs text-slate-600">Portal availability and authentication remain controlled by the respective government website. Complete OTP, CAPTCHA and filing confirmation only on that official website.</p>
       </div>
-      <PortalCredentialModal
-        client={credentialSetup?.client || null}
-        portal={credentialSetup?.portal || null}
-        user={user!}
-        onClose={() => setCredentialSetup(null)}
-        onSaved={(credential) => {
-          setCredentialsByClient((current) => ({
-            ...current,
-            [credential.client_id]: [...(current[credential.client_id] || []).filter((item) => item.portal_type !== credential.portal_type), credential],
-          }));
-          setNotice({ type: 'success', message: 'Portal login saved securely. Click Login to open the official portal and fill the credentials.' });
-        }}
-      />
     </div>
   );
 };

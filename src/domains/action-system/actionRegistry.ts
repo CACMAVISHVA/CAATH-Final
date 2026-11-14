@@ -20,7 +20,6 @@ const actionDefinitions: RegisteredOperationalAction[] = [
   { id: 'integration-validate', label: 'Connector validation completed', allowedRoles: ['SuperAdmin', 'Admin'], cooldownMs: 800, undoable: true },
   { id: 'integration-credential-rotate', label: 'Credential rotation queued for governance', allowedRoles: ['SuperAdmin'], cooldownMs: 1200 },
   { id: 'integration-circuit-reset', label: 'Circuit reset evaluated', allowedRoles: ['SuperAdmin', 'Admin'], cooldownMs: 1000, undoable: true },
-  { id: 'open-ai-queue', label: 'AI queue opened', cooldownMs: defaultCooldownMs },
   { id: 'open-gst', label: 'GST context opened', cooldownMs: defaultCooldownMs },
   { id: 'open-tasks', label: 'Task board opened', cooldownMs: defaultCooldownMs },
   { id: 'enter-deep-work', label: 'Focus mode enabled', cooldownMs: defaultCooldownMs },

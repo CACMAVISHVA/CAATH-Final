@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ClientRow } from '../services/clientService';
 import { TaskRow, getTasks } from '../services/taskService';
 import { ClientComplianceSnapshot, getClientComplianceSnapshot } from '../services/clientComplianceService';
+import { getClientFinancialSummary } from '../services/invoice/invoiceQueries';
 
 export interface ClientStats {
   totalBilled: number;
@@ -38,7 +39,11 @@ export const useClientProfileData = (
 
     setLoading(true);
     try {
-      const allTasks = await getTasks(firmId);
+      const [allTasks, financialSummary, snapshot] = await Promise.all([
+        getTasks(firmId),
+        getClientFinancialSummary(client.id),
+        getClientComplianceSnapshot(client.id, firmId),
+      ]);
       const clientTasks = allTasks.filter((task) => task.client_id === client.id);
       setTasks(clientTasks);
 
@@ -48,19 +53,21 @@ export const useClientProfileData = (
       ).length;
 
       setStats({
-        totalBilled: 1250000,
-        pendingPayments: 185000,
-        overdueAmount: 45000,
+        totalBilled: financialSummary.totalBilled,
+        pendingPayments: financialSummary.totalPending,
+        overdueAmount: financialSummary.overdueInvoices > 0
+          ? financialSummary.totalPending
+          : 0,
         activeTasks: clientTasks.filter((task) => task.status !== 'Completed').length,
         completedTasks: clientTasks.filter((task) => task.status === 'Completed').length,
         overdueTasks,
-        upcomingFilings: 4,
-        overdueFilings: 1,
-        documentsCount: 28,
-        noticesCount: 2,
+        upcomingFilings: snapshot.items.filter((item) => item.status === 'upcoming').length,
+        overdueFilings: snapshot.items.filter((item) => item.status === 'overdue').length,
+        documentsCount: 0,
+        noticesCount: snapshot.items.find((item) => item.domain === 'Notices')?.pendingActions || 0,
       });
 
-      setComplianceSnapshot(await getClientComplianceSnapshot(client.id, firmId));
+      setComplianceSnapshot(snapshot);
     } catch (error) {
       console.error('Failed to load client data:', error);
     } finally {

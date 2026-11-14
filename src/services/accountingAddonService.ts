@@ -48,6 +48,23 @@ export type AccountingClientOption = {
   gstin: string | null;
 };
 
+export type AccountingFinancialYear = {
+  id: string;
+  firm_id: string;
+  client_id: string;
+  label: string;
+  starts_on: string;
+  ends_on: string;
+  status: 'Open' | 'Closed';
+  created_at: string;
+};
+
+export type AccountingBookSummary = {
+  accounts: number;
+  draftVouchers: number;
+  postedVouchers: number;
+};
+
 export const listAccountingAddon = async (firmId: string) => {
   const [clientsResult, workspacesResult] = await Promise.all([
     supabase.from('clients').select('id,name,type,pan,gstin').eq('firm_id', firmId).order('name'),
@@ -81,4 +98,41 @@ export const requestAccountingAddon = async (
   });
   if (error?.code === '23505') throw new Error('This client already has an accounting add-on request or workspace.');
   if (error) throw error;
+};
+
+export const listAccountingFinancialYears = async (firmId: string) => {
+  const { data, error } = await supabase
+    .from('accounting_financial_years')
+    .select('id,firm_id,client_id,label,starts_on,ends_on,status,created_at')
+    .eq('firm_id', firmId)
+    .order('starts_on', { ascending: false });
+  if (error) throw error;
+  return (data || []) as AccountingFinancialYear[];
+};
+
+export const initializeAccountingBooks = async (params: {
+  clientId: string;
+  label: string;
+  startsOn: string;
+  endsOn: string;
+}) => {
+  const { data, error } = await supabase.rpc('initialize_accounting_books', {
+    p_client_id: params.clientId,
+    p_label: params.label,
+    p_starts_on: params.startsOn,
+    p_ends_on: params.endsOn,
+  });
+  if (error) throw error;
+  return data as string;
+};
+
+export const getAccountingBookSummary = async (financialYearId: string): Promise<AccountingBookSummary> => {
+  const [accounts, drafts, posted] = await Promise.all([
+    supabase.from('accounting_accounts').select('id', { count: 'exact', head: true }).eq('financial_year_id', financialYearId).eq('is_active', true),
+    supabase.from('accounting_vouchers').select('id', { count: 'exact', head: true }).eq('financial_year_id', financialYearId).eq('status', 'Draft'),
+    supabase.from('accounting_vouchers').select('id', { count: 'exact', head: true }).eq('financial_year_id', financialYearId).eq('status', 'Posted'),
+  ]);
+  const error = accounts.error || drafts.error || posted.error;
+  if (error) throw error;
+  return { accounts: accounts.count || 0, draftVouchers: drafts.count || 0, postedVouchers: posted.count || 0 };
 };

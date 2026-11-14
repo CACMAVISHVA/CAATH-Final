@@ -63,6 +63,7 @@ const DocumentVault = lazy(() => import('./DocumentVault'));
 interface ClientProfileProps {
   client: ClientRow | null;
   isOpen: boolean;
+  onEdit: () => void;
   onClose: () => void;
 }
 
@@ -100,6 +101,7 @@ const RISK_COLORS = {
 export const ClientProfile: React.FC<ClientProfileProps> = ({
   client,
   isOpen,
+  onEdit,
   onClose,
 }) => {
   const { user } = useAuth();
@@ -216,6 +218,7 @@ export const ClientProfile: React.FC<ClientProfileProps> = ({
           client={client}
           stats={stats}
           healthScore={healthScore}
+          onEdit={onEdit}
           onClose={onClose}
         />
 

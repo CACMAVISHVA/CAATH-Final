@@ -420,7 +420,7 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
     const data = type === 'revenue'
       ? subscriptions.filter(s => s.status === 'Active').map(s => ({ TenantID: formatTenantDisplayId(s.firm_id), Plan: s.plan, Amount: s.amount, Status: s.status }))
       : type === 'pending'
-      ? subscriptions.filter(s => s.status === 'Pending Verification').map(s => ({ TenantID: formatTenantDisplayId(s.firm_id), Plan: s.plan, Amount: s.amount, Submitted: s.created_at }))
+      ? subscriptions.filter(s => s.status === 'Pending Verification' || s.status === 'Pending Payment').map(s => ({ TenantID: formatTenantDisplayId(s.firm_id), Plan: s.plan, Amount: s.amount, Submitted: s.created_at }))
       : firms.filter(f => f.status === (type === 'active' ? 'Active' : 'Suspended')).map(f => ({ TenantID: formatTenantDisplayId(f.id), Status: f.status, Created: f.created_at }));
 
     const csv = data.length > 0 ? Object.keys(data[0]).join(',') + '\n' + data.map(row => Object.values(row).join(',')).join('\n') : '';
@@ -476,6 +476,7 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
           firms={firms}
           platformSettings={platformSettings}
           busyAction={busyAction}
+          focusedRequestId={new URLSearchParams(window.location.search).get('request')}
           onApproveRequest={approveSubscriptionRequestAction}
           onRejectRequest={rejectSubscriptionRequestAction}
           onManualActivate={manuallyActivateSubscriptionAction}

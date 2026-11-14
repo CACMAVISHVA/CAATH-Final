@@ -34,7 +34,6 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
   onClose,
   onExportCSV,
   onReactivate,
-  onApprove,
   firms,
   subscriptions,
 }) => {
@@ -171,14 +170,7 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
                     <td className="py-4 text-sm text-slate-400">{sub.plan}</td>
                     <td className="py-4 text-sm text-slate-400">Rs {Number(sub.amount || 0).toLocaleString()}</td>
                     <td className="py-4 text-sm text-slate-500">{sub.created_at ? new Date(sub.created_at).toLocaleDateString() : '-'}</td>
-                    <td className="py-4">
-                      <button
-                        onClick={() => onApprove?.(sub)}
-                        className="px-3 py-1.5 bg-gold text-matte-black hover:bg-gold/90 rounded-lg text-xs font-bold"
-                      >
-                        Approve
-                      </button>
-                    </td>
+                    <td className="py-4 text-xs font-bold text-gold">Manage in Subscriptions</td>
                   </tr>
                 ))}
               </tbody>
@@ -187,8 +179,8 @@ export const DrilldownModals: React.FC<DrilldownModalsProps> = ({
 
           {drilldownType === 'revenue' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-3 gap-4">
-                {['Starter', 'Professional', 'Enterprise'].map(plan => {
+              <div className="grid gap-4">
+                {['CAATH Practice OS'].map(plan => {
                   const planSubs = subscriptions.filter(s => s.status === 'Active' && s.plan === plan);
                   const planRevenue = planSubs.reduce((sum, s) => sum + Number(s.amount || 0), 0);
                   return (

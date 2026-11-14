@@ -1,5 +1,5 @@
 {
-  "name": "react-example",
+  "name": "caath-practice-os",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,7 +10,11 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:registration": "tsx scripts/registrationValidationMatrix.ts",
-    "preflight": "npm run lint && npm run build"
+    "test:accounting": "tsx --test src/domains/accounting/accountingCore.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:public": "playwright test tests/e2e/public-market-readiness.spec.ts",
+    "qa:accounts": "node scripts/qa-account-campaign.mjs",
+    "preflight": "npm run lint && npm run test:accounting && npm run build"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
@@ -33,12 +37,13 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.15",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

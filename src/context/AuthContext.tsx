@@ -34,7 +34,7 @@ export type UserMetadata = User;
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const INITIAL_SESSION_TIMEOUT_MS = 8_000;
 const ACCOUNT_INACTIVE_MESSAGE = 'Your account is not active. Please contact your firm administrator.';
-const ACCOUNT_PENDING_MESSAGE = 'Your workspace setup is incomplete. Please contact CAATH support.';
+const ACCOUNT_PENDING_MESSAGE = 'Your registration is awaiting CAATH God Admin approval. You will be able to sign in after approval.';
 const ACCOUNT_REJECTED_MESSAGE = 'Your CAATH registration was not approved. Please contact CAATH support if you need assistance.';
 const WORKSPACE_SUSPENDED_MESSAGE = 'This CAATH workspace has been suspended. Please contact CAATH support.';
 
@@ -73,7 +73,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(recoveryPending);
   const recoveryRef = useRef(isPasswordRecovery);
   const profileRequest = useRef(0);
+  const activeUserRef = useRef<User | null>(null);
   const subscriptionLocked = useMemo(() => isWorkspaceSubscriptionLocked(user), [user]);
+
+  useEffect(() => { activeUserRef.current = user; }, [user]);
 
   const loadUserProfile = useCallback(async (activeSession: Session | null) => {
     const request = ++profileRequest.current;
@@ -122,13 +125,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(WORKSPACE_SUSPENDED_MESSAGE);
     }
 
-    setUser(profile);
+    setUser((current) => {
+      if (current && JSON.stringify(current) === JSON.stringify(profile)) return current;
+      return profile;
+    });
   }, []);
 
   const refreshUser = useCallback(async () => {
     setError(null);
     try {
-      await loadUserProfile(session);
+      // Signup can finish before React has committed the auth-state callback.
+      // Read the current Supabase session so the first workspace load never
+      // depends on a stale `session === null` render closure.
+      const activeSession = session ?? await authService.getSession();
+      setSession(activeSession);
+      await loadUserProfile(activeSession);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : 'Unable to load user profile.');
     }
@@ -195,12 +206,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ++profileRequest.current;
         setSession(null);
         setUser(null);
-        setError(null);
         setIsLoading(false);
         return;
       }
-      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || (event === 'SIGNED_IN' && activeUserRef.current)) {
         setSession(nextSession);
+        if (nextSession) {
+          setError(null);
+          window.setTimeout(() => { if (!mounted) return; void loadUserProfile(nextSession)
+            .catch((profileError) => {
+              const message = profileError instanceof Error ? profileError.message : '';
+              setError([PROFILE_SETUP_INCOMPLETE_MESSAGE, ACCOUNT_INACTIVE_MESSAGE, ACCOUNT_PENDING_MESSAGE, ACCOUNT_REJECTED_MESSAGE].includes(message)
+                ? message
+                : normalizeAuthError(profileError).userMessage);
+            }); }, 0);
+        }
         return;
       }
       if (nextSession) {

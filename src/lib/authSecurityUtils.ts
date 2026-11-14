@@ -32,8 +32,8 @@ export const isValidEmail = (email: string): boolean => {
 export const validatePasswordStrength = (password: string): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
 
-  if (password.length < 8) {
-    errors.push('Password must be at least 8 characters');
+  if (password.length < 12) {
+    errors.push('Password must be at least 12 characters');
   }
   if (!/[A-Z]/.test(password)) {
     errors.push('Password must contain an uppercase letter');
@@ -43,6 +43,9 @@ export const validatePasswordStrength = (password: string): { isValid: boolean; 
   }
   if (!/[0-9]/.test(password)) {
     errors.push('Password must contain a number');
+  }
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    errors.push('Password must contain a symbol');
   }
 
   return {

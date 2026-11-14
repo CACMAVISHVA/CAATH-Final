@@ -1,5 +1,4 @@
-// @ts-nocheck
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 export class SecurityError extends Error {
   status: number;
@@ -14,17 +13,21 @@ export class SecurityError extends Error {
   }
 }
 
-export const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+export const allowedOrigin = (origin: string | null) => {
+  if (!origin) return null; // Authenticated non-browser calls still require authorization.
+  const allowed = new Set(['https://caath.in', 'https://www.caath.in', ...(Deno.env.get('PORTAL_ALLOWED_ORIGINS') || '').split(',').map(s => s.trim()).filter(Boolean)]);
+  if (!allowed.has(origin)) throw new SecurityError('Origin not allowed.', 403, 'ORIGIN_FORBIDDEN');
+  return origin;
 };
-
 export const json = (status: number, body: Record<string, unknown>) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+export const withCors = (response: Response, origin: string | null) => {
+  if (origin) response.headers.set('Access-Control-Allow-Origin', origin);
+  response.headers.set('Vary', 'Origin');
+  response.headers.set('Access-Control-Allow-Headers', 'authorization, x-client-info, apikey, content-type');
+  response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  return response;
+};
 
 export const requireEnv = (name: string): string => {
   const value = Deno.env.get(name);
@@ -44,8 +47,14 @@ export const toSafeErrorResponse = (error: unknown): Response => {
 
 export const parseJsonBody = async (req: Request): Promise<Record<string, unknown>> => {
   try {
-    const body = await req.json();
-    if (!body || typeof body !== "object") {
+    const reader = req.body?.getReader();
+    if (!reader) throw new Error('Missing payload');
+    const chunks: Uint8Array[] = []; let size = 0;
+    for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > 16384) { await reader.cancel(); throw new Error('Payload too large'); } chunks.push(value); }
+    const bytes = new Uint8Array(size); let offset = 0;
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+    const body = JSON.parse(new TextDecoder().decode(bytes));
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw new SecurityError("Invalid JSON payload.", 400, "INVALID_JSON");
     }
     return body as Record<string, unknown>;
@@ -105,43 +114,12 @@ export const createSupabaseClients = (authHeader: string) => {
 };
 
 export const assertRateLimit = async (
-  admin: ReturnType<typeof createClient>,
+  admin: ReturnType<typeof createSupabaseClients>["admin"],
   input: { scope: string; actorKey: string; limit: number; windowSeconds: number }
 ) => {
-  const now = new Date();
-  const windowStart = new Date(Math.floor(now.getTime() / (input.windowSeconds * 1000)) * (input.windowSeconds * 1000)).toISOString();
-
-  const { data: existing, error: fetchError } = await admin
-    .from("security_rate_limits")
-    .select("id, request_count")
-    .eq("scope", input.scope)
-    .eq("actor_key", input.actorKey)
-    .eq("window_start", windowStart)
-    .maybeSingle();
-
-  if (fetchError) throw new SecurityError("Unable to evaluate rate limit.", 500, "RATE_LIMIT_FAILURE", false);
-
-  if (!existing) {
-    const { error: insertError } = await admin.from("security_rate_limits").insert([{
-      scope: input.scope,
-      actor_key: input.actorKey,
-      window_start: windowStart,
-      request_count: 1,
-      updated_at: new Date().toISOString(),
-    }]);
-    if (insertError) throw new SecurityError("Unable to evaluate rate limit.", 500, "RATE_LIMIT_FAILURE", false);
-    return;
-  }
-
-  const nextCount = Number(existing.request_count || 0) + 1;
-  if (nextCount > input.limit) {
-    throw new SecurityError("Too many requests. Please retry later.", 429, "RATE_LIMITED");
-  }
-
-  const { error: updateError } = await admin
-    .from("security_rate_limits")
-    .update({ request_count: nextCount, updated_at: new Date().toISOString() })
-    .eq("id", existing.id);
-
-  if (updateError) throw new SecurityError("Unable to evaluate rate limit.", 500, "RATE_LIMIT_FAILURE", false);
+  const { data, error } = await admin.rpc('consume_security_rate_limit', {
+    p_scope: input.scope, p_actor: input.actorKey, p_limit: input.limit, p_window_seconds: input.windowSeconds,
+  });
+  if (error) throw new SecurityError('Unable to evaluate rate limit.', 503, 'RATE_LIMIT_FAILURE', false);
+  if (data !== true) throw new SecurityError('Too many requests. Please retry later.', 429, 'RATE_LIMITED');
 };

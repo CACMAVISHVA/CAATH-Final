@@ -37,7 +37,7 @@ export const FirmOperationsPanel: React.FC<FirmOperationsPanelProps> = ({
     <table className="w-full text-left">
       <thead className="bg-matte-black border-b border-slate-800">
         <tr>
-          {['Firm / applicant', 'Status', 'Created', 'Action'].map((head) => (
+          {['Firm / owner', 'Status', 'Created', 'Action'].map((head) => (
             <th key={head} className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">{head}</th>
           ))}
         </tr>

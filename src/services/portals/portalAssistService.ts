@@ -55,7 +55,7 @@ export const launchPortalWithAutofill = async (params: {
     };
   }
 
-  const secret = await revealPortalCredential(params.credentialId, params.user);
+  const secret = await revealPortalCredential(params.credentialId, params.user, 'Assisted portal login');
   const requestId = crypto.randomUUID();
   const response = waitForBridgeEvent<BridgeStatus>('caath:portal-autofill-status', requestId, 2_500);
 

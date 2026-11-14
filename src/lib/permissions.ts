@@ -9,9 +9,9 @@ export const ALL_ROLES: UserRole[] = ['GodAdmin', 'SuperAdmin', 'Admin', 'Staff'
 
 export const ROLE_HOME: Record<UserRole, string> = {
   GodAdmin: 'platform',
-  SuperAdmin: 'workspace',
-  Admin: 'workspace',
-  Staff: 'workspace',
+  SuperAdmin: 'dashboard',
+  Admin: 'dashboard',
+  Staff: 'dashboard',
   Client: 'overview',
 };
 
@@ -28,6 +28,8 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'settings',
     'subscription',
     'platform-regulatory-updates',
+    'notifications',
+    'help',
   ],
   SuperAdmin: [
     'workspace',
@@ -43,6 +45,7 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'clients',
     'compliance',
     'gst-practice-hub',
+    'gst-filing-matrix',
     'gst',
     'gst-lifecycle',
     'regulatory-updates',
@@ -72,6 +75,7 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'auditlog',
     'security',
     'qa',
+    'help',
   ],
   Admin: [
     'workspace',
@@ -87,6 +91,7 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'clients',
     'compliance',
     'gst-practice-hub',
+    'gst-filing-matrix',
     'gst',
     'gst-lifecycle',
     'portal-gst',
@@ -109,6 +114,7 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'login-activity',
     'auditlog',
     'qa',
+    'help',
   ],
   Staff: [
     'workspace',
@@ -123,6 +129,7 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'clients',
     'compliance',
     'gst-practice-hub',
+    'gst-filing-matrix',
     'gst',
     'gst-lifecycle',
     'portal-gst',
@@ -137,8 +144,9 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'practice-tools',
     'template-studio',
     'accounting-addon',
+    'help',
   ],
-  Client: ['overview', 'documents', 'messages', 'compliance'],
+  Client: ['overview', 'documents', 'messages', 'compliance', 'help'],
 };
 
 export type PermissionSet = {

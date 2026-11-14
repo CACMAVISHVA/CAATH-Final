@@ -7,12 +7,13 @@ export type FeatureName =
 
 export type FeatureContext = {
   tenantId?: string;
-  plan?: 'Basic' | 'Pro' | 'Enterprise';
+  plan?: 'Basic' | 'Pro' | 'Enterprise' | 'CAATH Practice OS';
   tenantOverrides?: Partial<Record<FeatureName, boolean>>;
   adminOverrides?: Partial<Record<FeatureName, boolean>>;
 };
 
 const planDefaults: Record<NonNullable<FeatureContext['plan']>, Partial<Record<FeatureName, boolean>>> = {
+  'CAATH Practice OS': { 'ai-workflows': false, 'gst-automation': false, 'advanced-audit': false, 'beta-mobile-api': false, 'document-ocr': false },
   Basic: { 'ai-workflows': false, 'gst-automation': false, 'advanced-audit': false, 'beta-mobile-api': false, 'document-ocr': false },
   Pro: { 'ai-workflows': true, 'gst-automation': true, 'advanced-audit': false, 'beta-mobile-api': false, 'document-ocr': true },
   Enterprise: { 'ai-workflows': true, 'gst-automation': true, 'advanced-audit': true, 'beta-mobile-api': true, 'document-ocr': true },

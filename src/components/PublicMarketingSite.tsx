@@ -20,39 +20,22 @@ import {
   X,
 } from 'lucide-react';
 import { Logo } from './Logo';
+import { CookieConsentBanner } from './CookieConsentBanner';
 
 type PublicMarketingSiteProps = {
   isSignedIn: boolean;
   onLogin: () => void;
   onOpenWorkspace: () => void;
-  onChoosePlan: (plan: 'Starter' | 'Professional' | 'Enterprise') => void;
+  onChoosePlan: (plan: 'CAATH Practice OS') => void;
   onRenew: () => void;
 };
 
-const plans = [
-  {
-    name: 'Starter' as const,
-    monthly: '₹999',
-    annual: '₹9,990',
-    description: 'For a growing independent practice.',
-    features: ['Up to 10 clients', 'Up to 3 staff', 'Client and task management', 'GST and notice workflows', 'Secure document vault'],
-  },
-  {
-    name: 'Professional' as const,
-    monthly: '₹1,599',
-    annual: '₹15,990',
-    description: 'For teams that need deeper control and visibility.',
-    featured: true,
-    features: ['Up to 50 clients', 'Up to 10 staff', 'Everything in Starter', 'Recurring workflow automation', 'Billing and profitability analytics', 'Client collaboration portal', 'Priority support'],
-  },
-  {
-    name: 'Enterprise' as const,
-    monthly: '₹2,599',
-    annual: '₹25,990',
-    description: 'For established and multi-team practices.',
-    features: ['Unlimited clients', 'Unlimited staff', 'Everything in Professional', 'Advanced audit and export controls', 'Multi-branch readiness', 'Governed regulatory publishing', 'Dedicated support'],
-  },
-];
+const plan = {
+  name: 'CAATH Practice OS' as const,
+  monthly: '₹1,499',
+  description: 'One complete operating system for your entire practice.',
+  features: ['Unlimited clients and team members', 'Client, task and secure document management', 'GST, compliance and notice workflows', 'Billing, reports and profitability visibility', 'Audit trail and role-based controls', 'Recurring workflow automation'],
+};
 
 const capabilities = [
   { icon: Users, title: 'One client command centre', text: 'Keep client profiles, responsibilities, work status and communication context together.' },
@@ -81,7 +64,7 @@ export const PublicMarketingSite: React.FC<PublicMarketingSiteProps> = ({
     const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
     const previousDescription = description?.content;
     if (description) {
-      description.content = 'CAATH — Chartered Artificial Assistant for Technical Hegemony — is the secure practice operating system for Indian CA, CMA, CS, ITP and STP professionals.';
+      description.content = 'CAATH — Chartered Artificial Assistant for Technical Hegemony — brings clients, tasks, GST workflows, notices, documents, billing, approvals and practice operations into one secure workspace.';
     }
     return () => {
       document.title = previousTitle.includes('Practice Management OS') ? 'CAATH – Secure Practice OS' : previousTitle;
@@ -96,6 +79,7 @@ export const PublicMarketingSite: React.FC<PublicMarketingSiteProps> = ({
 
   return (
     <div className="min-h-screen bg-[#090b10] text-white selection:bg-gold/30">
+      <a href="#main-content" className="sr-only z-[110] bg-gold px-4 py-2 font-bold text-black focus:not-sr-only focus:fixed focus:left-4 focus:top-4">Skip to content</a>
       <header className="sticky top-0 z-50 border-b border-white/10 bg-[#090b10]/90 backdrop-blur-xl">
         <div className="mx-auto flex h-18 max-w-7xl items-center justify-between px-5 lg:px-8">
           <button type="button" onClick={() => moveTo('home')} className="flex items-center gap-3" aria-label="CAATH home">
@@ -119,8 +103,8 @@ export const PublicMarketingSite: React.FC<PublicMarketingSiteProps> = ({
             <button type="button" onClick={isSignedIn ? onOpenWorkspace : onLogin} className="border border-white/15 px-4 py-2 text-sm font-bold text-slate-200 hover:border-gold/60 hover:text-gold">
               {isSignedIn ? 'Open Workspace' : 'Login'}
             </button>
-            <button type="button" onClick={() => onChoosePlan('Professional')} className="bg-gold px-4 py-2 text-sm font-black text-black hover:bg-gold-light">
-              Start free trial
+            <button type="button" onClick={() => onChoosePlan('CAATH Practice OS')} className="bg-gold px-4 py-2 text-sm font-black text-black hover:bg-gold-light">
+              Start Free Trial
             </button>
           </div>
 
@@ -141,40 +125,37 @@ export const PublicMarketingSite: React.FC<PublicMarketingSiteProps> = ({
               <button type="button" onClick={isSignedIn ? onOpenWorkspace : onLogin} className="border border-white/15 px-4 py-3">
                 {isSignedIn ? 'Open Workspace' : 'Customer Login'}
               </button>
-              <button type="button" onClick={() => onChoosePlan('Professional')} className="bg-gold px-4 py-3 text-black">Start 15-day free trial</button>
+              <button type="button" onClick={() => onChoosePlan('CAATH Practice OS')} className="bg-gold px-4 py-3 text-black">Start 15-Day Free Trial</button>
             </div>
           </div>
         )}
       </header>
 
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <section id="home" className="relative overflow-hidden border-b border-white/10">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(200,168,90,0.16),transparent_34rem)]" />
           <div className="relative mx-auto grid max-w-7xl gap-14 px-5 py-20 lg:grid-cols-[1.08fr_0.92fr] lg:px-8 lg:py-28">
             <div className="flex flex-col justify-center">
               <div className="mb-6 inline-flex w-fit items-center gap-2 border border-gold/30 bg-gold/10 px-3 py-2 text-xs font-bold uppercase tracking-[0.16em] text-gold-light">
-                <Sparkles className="h-4 w-4" /> Built for Indian practice operations
+                <Sparkles className="h-4 w-4" /> 15-day free trial · No payment required
               </div>
               <p className="mb-4 text-sm font-black uppercase tracking-[0.2em] text-gold">Chartered Artificial Assistant for Technical Hegemony</p>
               <h1 className="max-w-4xl text-5xl font-black leading-[1.02] tracking-[-0.045em] sm:text-6xl lg:text-7xl">
                 Run your professional practice with <span className="gold-text-gradient">clarity and control.</span>
               </h1>
               <p className="mt-7 max-w-2xl text-lg leading-8 text-slate-400">
-                CAATH connects clients, assignments, recurring compliance, GST work, notices, documents, billing, approvals and team accountability in one secure practice operating system.
-              </p>
-              <p className="mt-4 max-w-2xl text-sm font-semibold leading-6 text-slate-300">
-                Built for Chartered Accountants (CA), Cost and Management Accountants (CMA), Company Secretaries (CS), Income Tax Practitioners (ITP) and Sales Tax Practitioners (STP).
+                CAATH connects clients, assignments, recurring compliance, GST work, notices, documents, billing, approvals and team accountability in one secure operating system for CA, CMA, CS, ITP, STP and other professional practices.
               </p>
               <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-                <button type="button" onClick={() => onChoosePlan('Professional')} className="flex items-center justify-center gap-2 bg-gold px-6 py-3.5 font-black text-black hover:bg-gold-light">
-                  Start 15-day free trial <ArrowRight className="h-4 w-4" />
+                <button type="button" onClick={() => onChoosePlan('CAATH Practice OS')} className="flex items-center justify-center gap-2 bg-gold px-6 py-3.5 font-black text-black hover:bg-gold-light">
+                  Start Free Trial <ArrowRight className="h-4 w-4" />
                 </button>
                 <button type="button" onClick={isSignedIn ? onOpenWorkspace : onLogin} className="border border-white/15 px-6 py-3.5 font-bold text-white hover:border-gold/60 hover:text-gold">
                   {isSignedIn ? 'Continue to Workspace' : 'Existing customer login'}
                 </button>
               </div>
               <div className="mt-8 flex flex-wrap gap-x-6 gap-y-3 text-sm text-slate-400">
-                {['Role-based access', 'Auditable workflows', 'Private document controls'].map((item) => (
+                {['15 days free', 'No approval wait', 'No card required', 'No automatic debit'].map((item) => (
                   <span key={item} className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-emerald-400" />{item}</span>
                 ))}
               </div>
@@ -274,7 +255,7 @@ export const PublicMarketingSite: React.FC<PublicMarketingSiteProps> = ({
                 'Private document access controls',
                 'Authentication and login audit history',
                 'Approval gates for governed actions',
-                'Encrypted government-portal credential vault with user-controlled assisted login',
+                'Government credentials excluded from the quick-launch desk',
               ].map((item) => (
                 <div key={item} className="flex items-center gap-3 border border-white/10 bg-[#11141b] p-4">
                   <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-400" />
@@ -288,30 +269,29 @@ export const PublicMarketingSite: React.FC<PublicMarketingSiteProps> = ({
         <section id="pricing" className="scroll-mt-20 border-b border-white/10 bg-[#0d1016] py-20">
           <div className="mx-auto max-w-7xl px-5 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Straightforward pricing</p>
-              <h2 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">Choose the operating level your firm needs.</h2>
-              <p className="mt-5 text-slate-400">Annual plans provide two months of value compared with monthly billing. Taxes may apply.</p>
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold">Simple subscription pricing</p>
+              <h2 className="mt-4 text-4xl font-black tracking-tight sm:text-5xl">One price. Everything your practice needs.</h2>
+              <p className="mt-5 text-slate-400">Create your workspace without payment details. After your 15-day trial, continue with CAATH Practice OS for one simple monthly price. No tiers, per-user fees or automatic debit.</p>
             </div>
-            <div className="mt-12 grid gap-5 lg:grid-cols-3">
-              {plans.map((plan) => (
-                <article key={plan.name} className={`relative flex flex-col border p-7 ${plan.featured ? 'border-gold bg-gold/[0.06]' : 'border-white/10 bg-[#11141b]'}`}>
-                  {plan.featured && <span className="absolute right-5 top-0 -translate-y-1/2 bg-gold px-3 py-1 text-[10px] font-black uppercase tracking-wider text-black">Most popular</span>}
-                  <h3 className="text-2xl font-black">{plan.name}</h3>
-                  <p className="mt-2 min-h-12 text-sm leading-6 text-slate-400">{plan.description}</p>
-                  <div className="mt-6"><span className="text-4xl font-black">{plan.monthly}</span><span className="text-slate-500"> / month</span></div>
-                  <p className="mt-1 text-sm text-gold">{plan.annual} annually</p>
-                  <ul className="my-7 flex-1 space-y-3">
-                    {plan.features.map((feature) => <li key={feature} className="flex gap-3 text-sm text-slate-300"><Check className="h-4 w-4 shrink-0 text-emerald-400" />{feature}</li>)}
-                  </ul>
-                  <button type="button" onClick={() => onChoosePlan(plan.name)} className={plan.featured ? 'bg-gold px-5 py-3 font-black text-black hover:bg-gold-light' : 'border border-white/15 px-5 py-3 font-black hover:border-gold/60 hover:text-gold'}>
-                    Start 15-day trial
-                  </button>
-                </article>
-              ))}
+            <div className="mx-auto mt-12 max-w-xl">
+              <article className="relative flex flex-col border border-gold bg-gold/[0.06] p-7 sm:p-9">
+                <span className="absolute right-5 top-0 -translate-y-1/2 bg-gold px-3 py-1 text-[10px] font-black uppercase tracking-wider text-black">Launch price</span>
+                <h3 className="text-2xl font-black">{plan.name}</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-400">{plan.description}</p>
+                <div className="mt-6"><span className="text-5xl font-black">{plan.monthly}</span><span className="text-slate-500"> / month</span></div>
+                <p className="mt-2 text-sm text-gold">₹1,499/month + applicable GST · flat firm price · no per-user fees · cancel any time</p>
+                <p className="mt-2 text-xs leading-5 text-slate-300">The total, including applicable taxes, is shown before you confirm payment. No setup, auto-renewal or hidden fees.</p>
+                <ul className="my-7 grid gap-3 sm:grid-cols-2">
+                  {plan.features.map((feature) => <li key={feature} className="flex gap-3 text-sm text-slate-300"><Check className="h-4 w-4 shrink-0 text-emerald-400" />{feature}</li>)}
+                </ul>
+                <button type="button" onClick={() => onChoosePlan(plan.name)} className="bg-gold px-5 py-3 font-black text-black hover:bg-gold-light">
+                  Start your 15-day free trial
+                </button>
+              </article>
             </div>
             <div className="mt-8 flex flex-col items-center justify-between gap-4 border border-white/10 bg-[#11141b] p-6 sm:flex-row">
-              <div><p className="font-black">Already use CAATH?</p><p className="mt-1 text-sm text-slate-400">Sign in to renew, change your plan or review billing history.</p></div>
-              <button type="button" onClick={onRenew} className="whitespace-nowrap border border-gold/40 px-5 py-3 font-bold text-gold hover:bg-gold hover:text-black">Renew or manage plan</button>
+              <div><p className="font-black">Already use CAATH?</p><p className="mt-1 text-sm text-slate-400">Sign in to renew your CAATH Practice OS subscription or review billing history.</p></div>
+              <button type="button" onClick={onRenew} className="whitespace-nowrap border border-gold/40 px-5 py-3 font-bold text-gold hover:bg-gold hover:text-black">Renew subscription</button>
             </div>
           </div>
         </section>
@@ -320,8 +300,8 @@ export const PublicMarketingSite: React.FC<PublicMarketingSiteProps> = ({
           <div className="mx-auto max-w-5xl px-5 text-center lg:px-8">
             <Building2 className="mx-auto h-10 w-10 text-gold" />
             <h2 className="mt-5 text-4xl font-black tracking-tight">Give your practice one dependable operating system.</h2>
-            <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-400">Create your CAATH workspace, begin a 15-day free trial immediately, and choose a plan later from inside the app—no approval or payment required.</p>
-            <button type="button" onClick={() => onChoosePlan('Professional')} className="mt-8 inline-flex items-center gap-2 bg-gold px-7 py-4 font-black text-black hover:bg-gold-light">Start free trial <ArrowRight className="h-4 w-4" /></button>
+            <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-400">Create your workspace now, explore CAATH for 15 days and choose a subscription only when you are ready to continue.</p>
+            <button type="button" onClick={() => onChoosePlan('CAATH Practice OS')} className="mt-8 inline-flex items-center gap-2 bg-gold px-7 py-4 font-black text-black hover:bg-gold-light">Start 15-Day Free Trial <ArrowRight className="h-4 w-4" /></button>
           </div>
         </section>
       </main>
@@ -336,10 +316,13 @@ export const PublicMarketingSite: React.FC<PublicMarketingSiteProps> = ({
             <a href="/privacy" className="hover:text-gold">Privacy</a>
             <a href="/terms" className="hover:text-gold">Terms</a>
             <a href="/refund-policy" className="hover:text-gold">Refunds</a>
+            <a href="/cookie-policy" className="hover:text-gold">Cookies</a>
+            <a href="/data-deletion" className="hover:text-gold">Delete my data</a>
             <a href="/contact" className="hover:text-gold">Contact</a>
           </div>
         </div>
       </footer>
+      <CookieConsentBanner />
     </div>
   );
 };

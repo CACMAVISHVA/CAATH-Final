@@ -38,9 +38,7 @@ export class WorkspaceOnboardingError extends Error {
 }
 
 const PLAN_LIMITS: Record<WorkspaceSubscriptionPlan, { maxAdmins: number; maxStaff: number; maxClients: number }> = {
-  Starter: { maxAdmins: 1, maxStaff: 3, maxClients: 10 },
-  Professional: { maxAdmins: 3, maxStaff: 10, maxClients: 50 },
-  Enterprise: { maxAdmins: 10, maxStaff: -1, maxClients: -1 },
+  'CAATH Practice OS': { maxAdmins: -1, maxStaff: -1, maxClients: -1 },
 };
 
 const canCreateRole = (actorRole: UserRole | null, targetRole: UserRole) => {
@@ -219,7 +217,7 @@ export const createWorkspaceOwnerAccount = async ({
   const cleanEmail = email.trim().toLowerCase();
   const cleanName = fullName.trim();
   const cleanMobile = normalizeIndianPhone(mobile);
-  const limits = PLAN_LIMITS.Starter;
+  const limits = PLAN_LIMITS['CAATH Practice OS'];
   const subscriptionStatus: SubscriptionStatus = 'Trial';
   const subscriptionStartDate = new Date();
   const subscriptionExpiryDate = new Date(subscriptionStartDate);
@@ -287,7 +285,7 @@ export const createWorkspaceOwnerAccount = async ({
     p_email: cleanEmail,
     p_mobile: cleanMobile,
     p_gstin: gstin?.trim() || null,
-    p_subscription_plan: 'Starter',
+    p_subscription_plan: 'CAATH Practice OS',
     p_subscription_status: subscriptionStatus,
     p_subscription_start_date: subscriptionStartDate.toISOString(),
     p_subscription_expiry_date: subscriptionExpiryDate.toISOString(),

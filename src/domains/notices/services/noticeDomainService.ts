@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { validateNoticeInput, deadlineBand } from '../noticeIntelligence';
+import { supabase } from '../../../lib/supabase';
 import { User } from '../../../types';
 import { emitDomainEvent } from '../../sharedEventEmitter';
 import { createTask, getTasks, reassignTask, TaskCategory, TaskRow, TaskStatus, updateTaskStatus } from '../../tasks/services/taskDomainService';
@@ -43,6 +45,7 @@ export type NoticeInput = {
   deadline?: string;
   assignedTo?: string;
   user: User;
+  requestId?: string;
 };
 
 export interface NoticeWorkflowSignal {
@@ -100,13 +103,23 @@ const getNoticeLinkedTask = async (firmId: string, noticeId: string): Promise<Ta
   return tasks.find((item) => (item.description || '').includes(marker)) || null;
 };
 
-export const createNotice = async ({ firmId, clientId, noticeNumber, source, description, receivedDate, deadline, assignedTo, user }: NoticeInput): Promise<{ id: string }> => {
+export const createNotice = async ({ firmId, clientId, noticeNumber, source, description, receivedDate, deadline, assignedTo, user, requestId }: NoticeInput): Promise<{ id: string }> => {
+  validateNoticeInput({ noticeNumber, receivedDate, deadline });
+  if (user.firmId !== firmId || !['SuperAdmin', 'Admin', 'Staff'].includes(user.role)) throw new Error('Internal workspace access required.');
+  if (import.meta.env.VITE_NOTICE_INTELLIGENCE === 'true') {
+    const { data: id, error } = await supabase.rpc('create_notice_intelligence', {
+      p_client_id: clientId, p_number: noticeNumber!.trim(), p_source: source,
+      p_received: receivedDate, p_deadline: deadline, p_description: description || null,
+      p_assigned_to: assignedTo || null, p_request_id: requestId || crypto.randomUUID(),
+    });
+    if (error) throw new Error(error.message);
+    return { id: id as string };
+  }
   const data = await unwrapData(noticeRepository.createNotice({
     firm_id: firmId,
     client_id: clientId,
     notice_number: noticeNumber || null,
     source,
-    description,
     received_date: receivedDate,
     deadline: deadline || null,
     status: 'Received',
@@ -206,13 +219,7 @@ export const getNoticeStats = async (firmId: string) => {
     closed: notices.filter((n: any) => ['Closed', 'Archived'].includes(n.status)).length,
   };
 
-  const now = new Date();
-  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-  counts.upcoming = notices.filter((n: any) => {
-    if (!n.deadline) return false;
-    const deadline = new Date(n.deadline);
-    return deadline >= now && deadline <= sevenDaysFromNow && !['Closed', 'Archived'].includes(n.status);
-  }).length;
+  counts.upcoming = notices.filter(n => ['Due today', 'Due soon'].includes(deadlineBand(n.deadline, n.status))).length;
   return counts;
 };
 
@@ -227,7 +234,7 @@ export const getNoticeWorkflowSignals = async (firmId: string): Promise<NoticeWo
 
   return notices.map((notice) => {
     const linkedTask = noticeTaskMap.get(notice.id) || null;
-    const unresolved = !['Filed', 'Closed'].includes(notice.status);
+    const unresolved = !['Filed', 'Closed', 'Archived'].includes(notice.status);
     const receivableRisk: 'low' | 'medium' | 'high' = unresolved && notice.deadline && new Date(notice.deadline) < new Date() ? 'high' : unresolved ? 'medium' : 'low';
 
     return {

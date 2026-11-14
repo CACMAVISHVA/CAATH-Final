@@ -620,11 +620,11 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
                 <div className="rounded-md bg-white/[0.035] p-4 ring-1 ring-white/[0.045]">
                   <div className="mb-2 flex items-center gap-2">
                     <BrainCircuit className="h-4 w-4 text-gold" />
-                    <p className="text-sm font-semibold text-white">Docked intelligence</p>
+                    <p className="text-sm font-semibold text-white">Suggested next step</p>
                   </div>
-                  <p className="text-xs text-slate-500">Inline suggestion: request vendor confirmation before release. Confidence visible, action remains operator-owned.</p>
+                  <p className="text-xs text-slate-500">Review the task details and request vendor confirmation before release.</p>
                   <div className="mt-3 flex gap-2">
-                    <EOXButton onClick={() => rapidAction('open-ai-queue', 'AI queue')}>Open queue</EOXButton>
+                    <EOXButton onClick={() => rapidAction('open-tasks', 'Task board')}>Open tasks</EOXButton>
                     <EOXButton onClick={() => onNavigate('gst')}>GST context</EOXButton>
                   </div>
                 </div>
@@ -635,17 +635,17 @@ export const RealtimeWorkspaceShell: React.FC<RealtimeWorkspaceShellProps> = ({
               <TimelineList events={timelineEvents} />
             </WorkspacePanel>
 
-            <WorkspacePanel title="AI Workflow Assist" meta="Next actions, continuation shortcuts, SLA-aware prompts" live density={session.density} {...panelInteraction('ai-workflow-assist')}>
+            <WorkspacePanel title="Quick Actions" meta="Common task and compliance shortcuts" density={session.density} {...panelInteraction('ai-workflow-assist')}>
               <div className="grid gap-2 sm:grid-cols-2">
                 {[
                   { label: 'Continue GST variance', action: 'open-gst' as CommandAction },
                   { label: 'Assign next SLA risk', action: 'assign-work' as CommandAction },
                   { label: 'Approve clean batch', action: 'quick-approve' as CommandAction },
-                  { label: 'Open AI queue', action: 'open-ai-queue' as CommandAction },
+                  { label: 'Open task board', action: 'open-tasks' as CommandAction },
                 ].map((item) => (
                   <button key={item.label} onClick={() => rapidAction(item.action, item.label)} className="rounded-md bg-white/[0.035] p-3 text-left ring-1 ring-white/[0.045] hover:bg-white/[0.065]">
                     <p className="text-xs font-semibold text-white">{item.label}</p>
-                    <p className="mt-1 text-[10px] text-slate-500">Operator-owned recommendation</p>
+                    <p className="mt-1 text-[10px] text-slate-500">Open the relevant workspace</p>
                   </button>
                 ))}
               </div>

@@ -279,7 +279,8 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
             </button>
           </div>
         </div>
-        <table className="w-full text-left">
+        <div className="overflow-x-auto">
+        <table className="min-w-[660px] w-full table-fixed text-left">
           <thead>
             <tr className="border-b border-slate-800">
               {['Invoice', 'Client', 'Type', 'Amount', 'Status'].map((head) => <th key={head} className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase">{head}</th>)}
@@ -299,6 +300,7 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       <Modal isOpen={showInvoiceModal} onClose={() => setShowInvoiceModal(false)} title="Create New Invoice" size="lg" contentClassName="space-y-4">
@@ -329,7 +331,7 @@ export const BillingRevenue: React.FC<BillingRevenueProps> = ({ onActivateSubscr
 const LimitTile: React.FC<{ label: string; value: number }> = ({ label, value }) => (
   <div className="border border-slate-800 bg-matte-black p-3">
     <p className="text-[10px] uppercase text-slate-500">{label}</p>
-    <p className="text-lg font-bold text-white">{value}</p>
+    <p className="text-lg font-bold text-white">{value < 0 ? 'Unlimited' : value}</p>
   </div>
 );
 

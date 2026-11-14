@@ -101,6 +101,7 @@ export const updatePortalCredential = async (
   );
   if (validationError) throw new Error(validationError);
   const payload: Record<string, unknown> = { action: 'update', credentialId };
+  if (updates.assignedTo !== undefined) { requireUuid(updates.assignedTo, 'assignedTo'); payload.assignedTo = updates.assignedTo; }
   if (updates.portalName !== undefined) payload.portalName = updates.portalName.trim();
   if (updates.portalUrl !== undefined) payload.portalUrl = getValidPortalUrl(updates.portalUrl.trim());
   if (updates.username !== undefined) payload.username = updates.username.trim();

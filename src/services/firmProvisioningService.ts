@@ -6,7 +6,7 @@ export type FirmProvisioningInput = {
   firmName: string;
   adminName: string;
   adminEmail: string;
-  plan: 'Trial' | 'Starter' | 'Professional' | 'Enterprise';
+  plan: 'Trial' | 'CAATH Practice OS';
 };
 
 export type FirmProvisioningResult = {
@@ -51,7 +51,7 @@ export const createFirmProvisioningPackage = async (
       firm_id: firm.id,
       plan: input.plan,
       status: input.plan === 'Trial' ? 'Trial' : 'Pending',
-      amount: input.plan === 'Trial' ? 0 : input.plan === 'Starter' ? 1999 : input.plan === 'Professional' ? 4999 : 9999,
+      amount: input.plan === 'Trial' ? 0 : 1499,
       billing_cycle: 'Monthly',
       trial_ends_at: trialEndsAt,
       starts_at: new Date().toISOString(),

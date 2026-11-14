@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { User } from '../types';
 import { createReminder } from './automationService';
 
-export type GSTClientOption = { id: string; name: string; gstin: string | null; type: string };
+export type GSTClientOption = { id: string; name: string; gstin: string | null; type: string; services?: string[] | null };
 export type FilingStatus = 'Draft' | 'Validated' | 'Ready to File' | 'Filed';
 export type ChallanStatus = 'Draft' | 'Generated' | 'Paid' | 'Expired';
 export type LitigationStatus = 'Open' | 'On hold' | 'Closed';
@@ -46,7 +46,7 @@ const scheduleLifecycleReminder = async (params: { user: User; dueDate?: string;
 
 export const loadGSTComplianceLifecycle = async (firmId: string) => {
   const [clients, filings, challans, litigation] = await Promise.all([
-    supabase.from('clients').select('id,name,gstin,type').eq('firm_id', firmId).not('gstin', 'is', null).order('name'),
+    supabase.from('clients').select('id,name,gstin,type,services').eq('firm_id', firmId).contains('services', ['GST Filing']).order('name'),
     supabase.from('gst_filing_workpapers').select('*,client:clients(name)').eq('firm_id', firmId).order('due_date'),
     supabase.from('gst_challan_register').select('*,client:clients(name)').eq('firm_id', firmId).order('due_date'),
     supabase.from('gst_litigation_cases').select('*,client:clients(name)').eq('firm_id', firmId).order('hearing_date'),

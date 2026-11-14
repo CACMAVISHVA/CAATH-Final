@@ -8,7 +8,7 @@ import { createNotification } from './notificationService';
 import { User } from '../types';
 import { firstValidationError, validateEmail, validateGSTIN, validateIndianMobile, validateRequiredName } from '../lib/fieldValidation';
 
-export type SubscriptionPlan = 'Starter' | 'Professional' | 'Enterprise';
+export type SubscriptionPlan = 'CAATH Practice OS';
 export type SubscriptionStatus =
   | 'Trial'
   | 'Pending Verification'
@@ -18,7 +18,7 @@ export type SubscriptionStatus =
   | 'Suspended'
   | 'Cancelled'
   | 'Rejected';
-export type BillingCycle = 'Monthly' | 'Quarterly' | 'Half-Yearly' | 'Yearly' | 'Annual';
+export type BillingCycle = 'Monthly';
 
 export interface Subscription {
   id: string;
@@ -67,6 +67,8 @@ export interface PlatformSettings {
   subscription_qr_image_url: string | null;
   subscription_contact_email: string | null;
   subscription_contact_phone: string | null;
+  auto_approve_trusted_renewals: boolean;
+  approval_email_enabled: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -97,6 +99,10 @@ export interface SubscriptionRequest {
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+  approval_mode?: 'Manual' | 'Automatic';
+  risk_decision?: { eligible?: boolean; reason?: string; evaluated_at?: string };
+  approved_at?: string | null;
+  approved_by?: string | null;
   firm?: { name?: string | null; firm_name?: string | null; gstin?: string | null } | null;
 }
 
@@ -120,51 +126,30 @@ export interface SubscriptionInvoice {
   firm?: { name?: string | null; firm_name?: string | null; gstin?: string | null } | null;
 }
 
-export const GST_RATE = 0.18;
+// CAATH subscriptions are currently supplied without GST. This explicit zero
+// rate preserves the existing invoice fields and makes a future, controlled
+// GST-registration switch straightforward.
+export const GST_RATE = 0;
 
 export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanConfig> = {
-  Starter: {
-    plan: 'Starter',
-    monthlyAmount: 999,
-    annualAmount: 9990,
-    clientLimit: 10,
-    staffLimit: 3,
-    storageLimitGB: 10,
-    features: ['Client Management', 'GST Compliance', 'Task Management', 'Document Management', 'Notice Management', 'Email Support'],
-  },
-  Professional: {
-    plan: 'Professional',
-    monthlyAmount: 1599,
-    annualAmount: 15990,
-    clientLimit: 50,
-    staffLimit: 10,
-    storageLimitGB: 50,
-    features: ['Everything in Starter', 'Workflow Automation', 'Compliance Tracking', 'Invoice Management', 'Priority Support', 'Reports & Analytics'],
-  },
-  Enterprise: {
-    plan: 'Enterprise',
-    monthlyAmount: 2599,
-    annualAmount: 25990,
+  'CAATH Practice OS': {
+    plan: 'CAATH Practice OS',
+    monthlyAmount: 1499,
+    annualAmount: 1499,
     clientLimit: -1,
     staffLimit: -1,
-    storageLimitGB: 200,
-    features: ['Everything in Professional', 'Advanced Analytics', 'Audit Trail', 'Multi-Branch Support', 'White Label Capability', 'Dedicated Support'],
+    storageLimitGB: 100,
+    features: ['Unlimited clients and team members', 'Client, task and document management', 'GST, compliance and notice workflows', 'Billing, reports and profitability visibility', 'Audit trail and role-based controls', 'Recurring workflow automation'],
   },
 };
 
 export const getPlanAmount = (plan: SubscriptionPlan, billingCycle: BillingCycle) =>
-  billingCycle === 'Yearly' || billingCycle === 'Annual'
-    ? SUBSCRIPTION_PLANS[plan].annualAmount
-    : billingCycle === 'Half-Yearly'
-      ? Math.round(SUBSCRIPTION_PLANS[plan].monthlyAmount * 6 * 0.92)
-      : billingCycle === 'Quarterly'
-        ? Math.round(SUBSCRIPTION_PLANS[plan].monthlyAmount * 3 * 0.96)
-        : SUBSCRIPTION_PLANS[plan].monthlyAmount;
+  SUBSCRIPTION_PLANS[plan].monthlyAmount;
 
 export const calculateSubscriptionTotals = (plan: SubscriptionPlan, billingCycle: BillingCycle) => {
   const amount = getPlanAmount(plan, billingCycle);
   const gstAmount = Math.round(amount * GST_RATE);
-  return { amount, gstAmount, totalAmount: amount + gstAmount };
+  return { amount, gstAmount, totalAmount: amount };
 };
 
 export interface CashfreeCheckoutOrder {
@@ -172,6 +157,7 @@ export interface CashfreeCheckoutOrder {
   gatewayOrderId: string;
   paymentSessionId: string;
   mode: 'sandbox' | 'production';
+  autoRenew: false;
   totalAmount: number;
 }
 
@@ -188,10 +174,10 @@ const paymentApi = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return payload;
 };
 
-export const createCashfreeCheckoutOrder = (plan: SubscriptionPlan, billingCycle: BillingCycle) =>
+export const createCashfreeCheckoutOrder = (plan: SubscriptionPlan, billingCycle: BillingCycle, customerPhone?: string) =>
   paymentApi<CashfreeCheckoutOrder>('/api/cashfree-order', {
     method: 'POST',
-    body: JSON.stringify({ plan, billingCycle }),
+    body: JSON.stringify({ plan, billingCycle, customerPhone }),
   });
 
 export const verifyCashfreeCheckoutOrder = (orderId: string) =>
@@ -207,7 +193,7 @@ const nextSequence = (value: string | null | undefined) => {
 const planLimits = (plan: SubscriptionPlan) => {
   const config = SUBSCRIPTION_PLANS[plan];
   return {
-    max_admins: plan === 'Enterprise' ? 10 : plan === 'Professional' ? 3 : 1,
+    max_admins: -1,
     max_staff: config.staffLimit,
     max_clients: config.clientLimit,
   };
@@ -219,18 +205,15 @@ const featureFlags = (plan: SubscriptionPlan) => ({
   workflow: true,
   gst_intelligence: true,
   compliance: true,
-  notices: plan !== 'Starter' || true,
-  reports: plan !== 'Starter',
+  notices: true,
+  reports: true,
   billing: true,
-  analytics: plan !== 'Starter',
+  analytics: true,
 });
 
 const addCycle = (start: Date, billingCycle: BillingCycle) => {
   const end = new Date(start);
-  if (billingCycle === 'Monthly') end.setMonth(end.getMonth() + 1);
-  else if (billingCycle === 'Quarterly') end.setMonth(end.getMonth() + 3);
-  else if (billingCycle === 'Half-Yearly') end.setMonth(end.getMonth() + 6);
-  else end.setFullYear(end.getFullYear() + 1);
+  end.setMonth(end.getMonth() + 1);
   return end;
 };
 
@@ -304,6 +287,8 @@ export const getPlatformSettings = async (): Promise<PlatformSettings> => {
     subscription_qr_image_url: null,
     subscription_contact_email: null,
     subscription_contact_phone: null,
+    auto_approve_trusted_renewals: true,
+    approval_email_enabled: false,
   };
 
   const { data, error } = await supabase
@@ -438,6 +423,7 @@ export const submitSubscriptionRequest = async (params: {
     title: 'Subscription verification required',
     message: `${params.user.firm?.name || 'A workspace'} submitted ${referenceNumber} for verification.`,
     priority: 'HIGH',
+    actionUrl: `/app?tab=subscriptions&request=${data.id}`,
     user: params.user,
   });
 
@@ -449,6 +435,7 @@ const upsertActiveSubscription = async (params: {
   plan: SubscriptionPlan;
   billingCycle: BillingCycle;
   amount: number;
+  paymentMethod: 'Cashfree' | 'Manual';
   actor: User;
   startDate: Date;
   endDate: Date;
@@ -473,6 +460,7 @@ const upsertActiveSubscription = async (params: {
     staff_limit: limits.max_staff,
     storage_limit_gb: SUBSCRIPTION_PLANS[params.plan].storageLimitGB,
     auto_renew: false,
+    payment_method: params.paymentMethod,
     last_payment_status: 'Success',
     updated_by: params.actor.id,
     updated_at: new Date().toISOString(),
