@@ -23,6 +23,7 @@ export const ROLE_ACCESS: Record<UserRole, string[]> = {
     'subscriptions',
     'accounting-addons',
     'platform-audit',
+    'system-health',
     'usage',
     'system-notices',
     'settings',

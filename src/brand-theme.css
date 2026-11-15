@@ -1,0 +1,91 @@
+/*
+ * Workspace branding layer.
+ * Every rule is scoped to html[data-brand-theme] (set only when an organisation has saved a
+ * theme), so the default CAATH appearance is untouched. Colours come exclusively from the
+ * variables written by src/shared/config/brandTheme.ts.
+ */
+html[data-brand-theme] { background: var(--color-matte-black); color-scheme: dark; }
+html[data-brand-theme][data-brand-mode="light"] { color-scheme: light; }
+html[data-brand-theme] body { background: var(--color-matte-black); }
+html[data-brand-theme] .caath-sidebar { background-color: var(--caath-sidebar); }
+html[data-brand-theme] ::selection { background: color-mix(in srgb, var(--caath-highlight) 32%, transparent); }
+
+/* Buttons: one fill, with consistent hover / active / disabled / focus states. */
+html[data-brand-theme] .bg-gold {
+  background-color: var(--caath-button);
+  background-image: none;
+  color: var(--caath-button-text) !important;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.16) !important;
+}
+html[data-brand-theme] .bg-gold :where(svg, span) { color: inherit; }
+html[data-brand-theme] :is(button, a, [role="button"]).bg-gold:hover:not(:disabled):not([aria-disabled="true"]),
+html[data-brand-theme] .hover\:bg-gold:hover:not(:disabled),
+html[data-brand-theme] .hover\:bg-gold-light:hover:not(:disabled) {
+  background-color: var(--caath-button-hover);
+  background-image: none;
+}
+html[data-brand-theme] :is(button, a, [role="button"]).bg-gold:active:not(:disabled) { filter: brightness(0.92); }
+html[data-brand-theme] :is(button, [role="button"]).bg-gold:is(:disabled, [aria-disabled="true"]) { opacity: 0.55; cursor: not-allowed; }
+html[data-brand-theme] :where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 2px solid var(--caath-highlight);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+html[data-brand-theme] .gold-gradient { background: var(--caath-button); box-shadow: none; }
+html[data-brand-theme] .gold-text-gradient { background: none; -webkit-text-fill-color: currentColor; color: var(--color-gold); }
+html[data-brand-theme] .gold-border-gradient { border-image: none; border-color: var(--color-gold); }
+
+html[data-brand-theme] * { scrollbar-color: color-mix(in srgb, var(--color-gold) 50%, transparent) transparent; }
+html[data-brand-theme] *::-webkit-scrollbar-track { background: transparent; }
+html[data-brand-theme] *::-webkit-scrollbar-thumb,
+html[data-brand-theme] *::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-gold) 50%, transparent);
+  background-clip: content-box;
+  border-color: transparent;
+}
+
+/*
+ * Light Mode. The app is written with dark-first utilities, so the neutral scale is mirrored
+ * and pale status tints are swapped for their readable counterparts.
+ */
+html[data-brand-mode="light"] {
+  --color-white: #0f172a;
+  --color-slate-50: #020617; --color-slate-100: #0f172a; --color-slate-200: #1e293b; --color-slate-300: #334155;
+  --color-slate-400: #475569; --color-slate-500: #5b6b82; --color-slate-600: #8492a6; --color-slate-700: #cbd5e1;
+  --color-slate-800: #e2e8f0; --color-slate-900: #eef2f7; --color-slate-950: #f8fafc;
+  --color-gray-300: #374151; --color-gray-400: #4b5563; --color-gray-500: #6b7280; --color-gray-700: #d1d5db; --color-gray-800: #e5e7eb;
+  --caath-muted: #5b6b82;
+  --caath-border: rgb(15 23 42 / 0.12);
+  --caath-border-strong: rgb(15 23 42 / 0.22);
+  --caath-elevation: 0 12px 32px rgb(15 23 42 / 0.12);
+  --color-red-100: #991b1b; --color-red-200: #991b1b; --color-red-300: #b91c1c; --color-red-400: #b91c1c;
+  --color-rose-100: #9f1239; --color-rose-200: #9f1239; --color-rose-300: #be123c; --color-rose-400: #be123c;
+  --color-orange-100: #9a3412; --color-orange-200: #9a3412; --color-orange-300: #c2410c; --color-orange-400: #c2410c;
+  --color-amber-100: #92400e; --color-amber-200: #92400e; --color-amber-300: #b45309; --color-amber-400: #b45309;
+  --color-yellow-100: #854d0e; --color-yellow-200: #854d0e; --color-yellow-300: #a16207; --color-yellow-400: #a16207;
+  --color-lime-100: #3f6212; --color-lime-200: #3f6212; --color-lime-300: #4d7c0f; --color-lime-400: #4d7c0f;
+  --color-green-100: #166534; --color-green-200: #166534; --color-green-300: #15803d; --color-green-400: #15803d;
+  --color-emerald-100: #065f46; --color-emerald-200: #065f46; --color-emerald-300: #047857; --color-emerald-400: #047857;
+  --color-teal-100: #115e59; --color-teal-200: #115e59; --color-teal-300: #0f766e; --color-teal-400: #0f766e;
+  --color-cyan-100: #155e75; --color-cyan-200: #155e75; --color-cyan-300: #0e7490; --color-cyan-400: #0e7490;
+  --color-sky-100: #075985; --color-sky-200: #075985; --color-sky-300: #0369a1; --color-sky-400: #0369a1;
+  --color-blue-100: #1e40af; --color-blue-200: #1e40af; --color-blue-300: #1d4ed8; --color-blue-400: #1d4ed8;
+  --color-indigo-100: #3730a3; --color-indigo-200: #3730a3; --color-indigo-300: #4338ca; --color-indigo-400: #4338ca;
+  --color-violet-100: #5b21b6; --color-violet-200: #5b21b6; --color-violet-300: #6d28d9; --color-violet-400: #6d28d9;
+  --color-purple-100: #6b21a8; --color-purple-200: #6b21a8; --color-purple-300: #7e22ce; --color-purple-400: #7e22ce;
+  --color-fuchsia-100: #86198f; --color-fuchsia-200: #86198f; --color-fuchsia-300: #a21caf; --color-fuchsia-400: #a21caf;
+  --color-pink-100: #9d174d; --color-pink-200: #9d174d; --color-pink-300: #be185d; --color-pink-400: #be185d;
+}
+/* White text stays white on solid colour fills. */
+html[data-brand-mode="light"] :where(
+  .bg-red-500, .bg-red-600, .bg-red-700, .bg-rose-600, .bg-orange-600, .bg-amber-600, .bg-green-600, .bg-green-700,
+  .bg-emerald-500, .bg-emerald-600, .bg-emerald-700, .bg-teal-600, .bg-cyan-600, .bg-sky-600, .bg-blue-500, .bg-blue-600,
+  .bg-blue-700, .bg-indigo-600, .bg-violet-600, .bg-purple-600, .bg-black
+).text-white { color: #fff; }
+html[data-brand-mode="light"] :where(h1, h2, h3, h4) { text-shadow: none !important; }
+
+/* Printed documents keep ink-on-paper colours; the brand colour is used for headings only. */
+@media print {
+  html[data-brand-theme] .gold-text-gradient { color: var(--caath-button); }
+}

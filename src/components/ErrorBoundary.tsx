@@ -1,10 +1,14 @@
 import React, { Component, ReactNode } from 'react';
 import { AlertTriangle, LifeBuoy, Loader2, RefreshCw } from 'lucide-react';
-import { Logo } from './Logo';
+import { reportError } from '../services/errorReporter';
 
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  /** Module name attached to automatic error reports. */
+  moduleName?: string;
+  /** The outermost boundary: a crash here takes the whole application down. */
+  root?: boolean;
   onReportError?: (error: Error, componentStack?: string) => Promise<void>;
 }
 
@@ -27,6 +31,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('CAATH OS Error:', error, errorInfo);
+    // Automatic report to the platform error dashboard; the manual support-ticket button remains available.
+    reportError(error, { type: 'react', severity: this.props.root ? 'Critical' : 'High', module: this.props.moduleName, detail: errorInfo.componentStack || undefined });
     this.setState({ componentStack: errorInfo.componentStack || undefined });
   }
 
@@ -64,7 +70,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </div>
             </div>
             <p className="text-sm text-slate-400 mb-6">
-              {this.state.error?.message || 'An unexpected error occurred. The application will attempt to recover.'}
+              Something went wrong while displaying this screen. The CAATH team has been notified automatically. Your saved data is not affected — try again, or reload the application.
             </p>
             <button
               onClick={this.handleReset}
@@ -105,7 +111,7 @@ export class ErrorBoundary extends Component<Props, State> {
 export class ModuleErrorBoundary extends Component<{ moduleName: string; children: ReactNode }> {
   render() {
     return (
-      <ErrorBoundary>
+      <ErrorBoundary moduleName={this.props.moduleName}>
         {this.props.children}
       </ErrorBoundary>
     );

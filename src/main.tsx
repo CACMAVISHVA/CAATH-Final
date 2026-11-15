@@ -5,6 +5,9 @@ import { runtimeKernel } from './runtime/production';
 
 import './index.css';
 import './premium-finish.css';
+import './brand-theme.css';
+import { applyBrandTheme, readCachedBrandTheme } from './shared/config/brandTheme';
+import { installGlobalErrorHandlers } from './services/errorReporter';
 
 // Cosmetic-only preview preference. No account or workspace data is affected.
 // ?appearance=classic restores the original CSS for this tab immediately.
@@ -20,6 +23,10 @@ try {
   // Browsers blocking storage can still select the appearance through the URL.
 }
 document.documentElement.dataset.uiFinish = appearance;
+
+// Paint the workspace's saved branding before first render; the server copy is re-checked after sign-in.
+applyBrandTheme(readCachedBrandTheme());
+installGlobalErrorHandlers();
 
 runtimeKernel.start();
 

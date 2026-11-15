@@ -217,21 +217,21 @@
   }
 
   .border-slate-800 {
-    border-color: rgba(100, 116, 139, 0.16) !important;
+    border-color: var(--caath-border, rgba(100, 116, 139, 0.16)) !important;
   }
 
   .border-slate-700 {
-    border-color: rgba(148, 163, 184, 0.22) !important;
+    border-color: var(--caath-border-strong, rgba(148, 163, 184, 0.22)) !important;
   }
 
   /* Slate 500 is too dim for small supporting copy on CAATH's dark surfaces. */
   .text-slate-500 {
-    color: #a5b2c5 !important;
+    color: var(--caath-muted, #a5b2c5) !important;
   }
 
   .shadow-xl,
   .shadow-2xl {
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2) !important;
+    box-shadow: var(--caath-elevation, 0 18px 44px rgba(0, 0, 0, 0.2)) !important;
   }
 
   button,

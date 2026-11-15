@@ -19,6 +19,7 @@ import { DrilldownModals } from './god-admin/DrilldownModals';
 import { sanitizeAuditDetailsForPlatform } from '../services/dataSovereigntyService';
 import { ControlTowerModule } from './god-admin/ControlTowerModule';
 import { UsageMonitoringModule } from './god-admin/UsageMonitoringModule';
+import { SystemHealthPanel } from './god-admin/SystemHealthPanel';
 import { PlatformConfigModule } from './god-admin/PlatformConfigModule';
 import { FirmProvisioningPanel } from './god-admin/FirmProvisioningPanel';
 import { PlatformRegulatoryPublisher } from './god-admin/PlatformRegulatoryPublisher';
@@ -447,6 +448,7 @@ export const GodAdminDashboard: React.FC<GodAdminDashboardProps> = ({ activeTab 
         />
       );
     }
+    if (activeTab === 'system-health') return <SystemHealthPanel firms={firms.map((firm) => ({ id: firm.id, name: firm.name || 'Unnamed workspace' }))} />;
     if (activeTab === 'usage') {
       return <UsageMonitoringModule snapshot={usageSnapshot} runtimeHealth={runtimeHealth} />;
     }

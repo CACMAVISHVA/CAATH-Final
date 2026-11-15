@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from '../../context/AuthContext';
 import { ToastProvider } from '../../components/Toast';
 import { UIProvider, useUI } from '../../context/UIContext';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { BrandingProvider } from '../../context/BrandingContext';
 import { syncAuthState } from '../bootstrap/syncAuthState';
 import { reportPilotError } from '../../services/supportEscalationTicketingService';
 
@@ -50,9 +51,10 @@ const AuthenticatedErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ c
 export const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <StrictMode>
-      <ErrorBoundary>
+      <ErrorBoundary root moduleName="app-shell">
         <BrowserRouter>
           <AuthProvider>
+            <BrandingProvider>
             <UIProvider>
               <UIStyleSync />
               <EnterpriseStateSync>
@@ -61,6 +63,7 @@ export const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children
                 </ToastProvider>
               </EnterpriseStateSync>
             </UIProvider>
+            </BrandingProvider>
           </AuthProvider>
         </BrowserRouter>
       </ErrorBoundary>

@@ -6,11 +6,12 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
-import { LogOut, User as UserIcon, LayoutDashboard, FileText, MessageSquare, Clock, CreditCard, ShieldCheck, Users, CheckSquare, Bell, UserCog, History as HistoryIcon, FileCheck2, FolderLock, Building2, Activity, Database, Settings, Megaphone, ExternalLink, ChevronRight, Newspaper, FileKey2, BookOpenCheck, LibraryBig, Landmark, CircleHelp, FileSpreadsheet } from 'lucide-react';
+import { LogOut, User as UserIcon, LayoutDashboard, FileText, MessageSquare, Clock, CreditCard, ShieldCheck, Users, CheckSquare, Bell, UserCog, History as HistoryIcon, FileCheck2, FolderLock, Building2, Activity, Database, Settings, Megaphone, ExternalLink, ChevronRight, Newspaper, FileKey2, BookOpenCheck, LibraryBig, Landmark, CircleHelp, FileSpreadsheet, HeartPulse } from 'lucide-react';
 import { User } from '../types';
 import { getUserFullName, getUserDisplayRole } from '../lib/userHelpers';
 import { Logo } from './Logo';
 import { canAccessTab, ROLE_HOME } from '../lib/permissions';
+import { useOptionalBranding } from '../context/BrandingContext';
 
 interface SidebarProps {
   activeTab: string;
@@ -42,6 +43,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen = false,
   onClose = () => {},
 }) => {
+  const branding = useOptionalBranding();
+  const [logoFailed, setLogoFailed] = React.useState(false);
+  React.useEffect(() => setLogoFailed(false), [branding?.logoUrl]);
+  const workspaceLogo = !logoFailed ? branding?.logoUrl : null;
   const storageKey = `caath-sidebar-section-${user?.id || user?.role || 'guest'}`;
   const getNavSections = (): SidebarSection[] => {
     if (user?.role === 'GodAdmin') {
@@ -56,6 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           label: 'Control',
           items: [
+            { id: 'system-health', label: 'System Health & Errors', icon: HeartPulse },
             { id: 'usage', label: 'Usage Monitoring', icon: Database },
             { id: 'notifications', label: 'Approval Alerts', icon: Bell },
             { id: 'platform-audit', label: 'Global Audit', icon: Activity },
@@ -187,15 +193,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside className={cn(
-      "fixed inset-y-0 left-0 z-40 flex h-[100dvh] w-[min(20rem,88vw)] flex-col bg-matte-black-light text-slate-400 shadow-2xl ring-1 ring-white/[0.04] transition-transform duration-200 lg:static lg:z-20 lg:w-64 lg:translate-x-0",
+      "caath-sidebar fixed inset-y-0 left-0 z-40 flex h-[100dvh] w-[min(20rem,88vw)] flex-col bg-matte-black-light text-slate-400 shadow-2xl ring-1 ring-white/[0.04] transition-transform duration-200 lg:static lg:z-20 lg:w-64 lg:translate-x-0",
       isOpen ? "visible translate-x-0" : "invisible -translate-x-full lg:visible",
     )}>
       <div className="flex items-center gap-3 px-5 py-6">
-        <Logo size="md" />
-        <div>
-          <h1 className="text-lg font-semibold leading-tight text-white">CAATH OS</h1>
-          <p className="text-[11px] font-medium tracking-normal text-slate-600">Premium operations</p>
-        </div>
+        {workspaceLogo ? (
+          <div className="min-w-0">
+            <img src={workspaceLogo} alt={`${user?.firm?.name || 'Workspace'} logo`} className="h-10 max-w-[10rem] object-contain object-left" onError={() => { setLogoFailed(true); void branding?.refresh(); }} />
+            <p className="mt-1 text-[11px] font-medium tracking-normal text-slate-600">Powered by CAATH OS</p>
+          </div>
+        ) : (
+          <>
+            <Logo size="md" />
+            <div>
+              <h1 className="text-lg font-semibold leading-tight text-white">CAATH OS</h1>
+              <p className="text-[11px] font-medium tracking-normal text-slate-600">Premium operations</p>
+            </div>
+          </>
+        )}
         <button onClick={onClose} aria-label="Close menu" className="ml-auto min-h-11 px-3 text-xl text-slate-300 lg:hidden">×</button>
       </div>
 

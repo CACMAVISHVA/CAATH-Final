@@ -8,6 +8,8 @@ import { motion } from 'motion/react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, CreditCard, Eye, EyeOff, Loader2, Menu, Search, ShieldCheck } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
+import { BrandingSettings } from './components/BrandingSettings';
+import { setErrorModule } from './services/errorReporter';
 import { PasswordRecoveryScreen } from './components/PasswordRecoveryScreen';
 import { recoveryPending } from './lib/passwordRecovery';
 import { Dashboard } from './components/Dashboard';
@@ -271,6 +273,9 @@ export default function App() {
   }, []);
 
   const allowedTabs = useMemo(() => (user ? ROLE_ACCESS[user.role] : []), [user]);
+
+  // Automatic error reports are tagged with the workspace area the user is in.
+  useEffect(() => { setErrorModule(user ? activeTab : 'auth'); }, [activeTab, user]);
 
   useEffect(() => {
     if (!user || location.pathname !== '/app' || new URLSearchParams(location.search).has('tab')) return;
@@ -841,9 +846,9 @@ const LockedModuleOverlay: React.FC<{ onActivate: () => void }> = ({ onActivate 
 );
 
 const WorkspaceSettingsPanel: React.FC<{ user: NonNullable<ReturnType<typeof useAuth>['user']> }> = ({ user }) => (
-  <div className="h-full overflow-y-auto bg-matte-black p-8 text-slate-300">
+  <div className="h-full overflow-y-auto bg-matte-black p-4 text-slate-300 sm:p-8">
     <h2 className="text-2xl font-bold gold-text-gradient">Workspace Settings</h2>
-    <p className="mt-1 text-sm text-slate-500">Manage ownership, subscription access, and workspace defaults.</p>
+    <p className="mt-1 text-sm text-slate-500">Manage ownership, subscription access, appearance and branding.</p>
     <div className="mt-6 grid gap-4 md:grid-cols-3">
       <div className="border border-slate-800 bg-matte-black-light p-5">
         <p className="text-xs uppercase text-slate-500">Owner</p>
@@ -858,6 +863,9 @@ const WorkspaceSettingsPanel: React.FC<{ user: NonNullable<ReturnType<typeof use
         <p className="text-xs uppercase text-slate-500">Subscription</p>
         <p className="mt-2 text-lg font-bold text-white">{user.firm?.subscriptionStatus || 'Pending Payment'}</p>
       </div>
+    </div>
+    <div className="mt-8 border border-slate-800 bg-matte-black-light p-5 sm:p-6">
+      <BrandingSettings user={user} />
     </div>
   </div>
 );

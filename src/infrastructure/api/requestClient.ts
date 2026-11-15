@@ -3,6 +3,7 @@ import { appConfig } from '../../shared/config/appConfig';
 import { generateTraceId } from '../../shared/utils/trace';
 import { logger } from '../monitoring/logger';
 import { ApiError, ApiRequestOptions } from './types';
+import { classifyHttpFailure, reportError } from '../../services/errorReporter';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -85,6 +86,8 @@ export const requestClient = {
       } catch (error) {
         const isLastAttempt = attempt >= retry;
         if (isLastAttempt) {
+          const verdict = classifyHttpFailure({ url: path, method: options.method ?? 'GET', status: error instanceof ApiError ? error.status : 0, durationMs: 0, offline: navigator.onLine === false });
+          if (verdict) reportError(new Error(verdict.message), { ...verdict, requestId: traceId });
           if (error instanceof ApiError) throw error;
           throw new ApiError('Network request failed', 0, 'NETWORK_ERROR', traceId);
         }

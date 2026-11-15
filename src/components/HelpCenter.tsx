@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowRight, BookOpenCheck, CheckCircle2, HelpCircle, LifeBuoy, LockKeyhole, MonitorSmartphone } from 'lucide-react';
 import { User, UserRole } from '../types';
+import { WorkspaceIssuesPanel } from './WorkspaceIssuesPanel';
 
 type GuideStep = { title: string; description: string; tab?: string };
 
@@ -88,6 +89,8 @@ export const HelpCenter: React.FC<HelpCenterProps> = ({ user, onNavigate }) => {
             'Do not rely on AI output without professional review.',
           ]} />
         </section>
+
+        {(user.role === 'SuperAdmin' || user.role === 'Admin') && <WorkspaceIssuesPanel />}
 
         <section className="flex flex-col gap-4 border border-gold/25 bg-gold/5 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
